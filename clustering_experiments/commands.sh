@@ -1,7 +1,7 @@
 #!/bin/bash
 
 usage="USAGE:\n
-                $0 genomes.csv path/to/RefPkgs/"
+                $0 genomes.csv path/to/RefPkgs/ [threads=8]"
 
 if [ $# -eq 0 ]; then
 	echo "ERROR: No arguments provided."
@@ -14,8 +14,15 @@ elif [ $# -lt 2 ]; then
 	echo "ERROR: Insufficient number of arguments provided."
 	echo $usage
 fi
+
+# Set arguments
 genomes_list=$1
 refpkgs_repo_dir=$2
+if [ -z $3 ]; then
+  n_threads=8
+else
+  n_threads=$3
+fi
 
 proteins_fa=proteome.fasta
 refpkg_dir=clustering_refpkgs/
@@ -52,42 +59,48 @@ cp \
 	$refpkgs_repo_dir/Translation/PF01655/seed_refpkg/final_outputs/PF01655_build.pkl \
 	$refpkg_dir
 
-for r in 400 50
+for r in 50 100 200 400 "full"
 do
 	prefix=length_$r
-	queries=$prefix/$proteins_fa
 	if [ -d $prefix ]; then
 	       rm -r $prefix
         fi
 	mkdir $prefix
 	mkdir $prefix/$phylotu_out
 
-	echo "Creating subsequences of length $r from $proteins_fa"
-	cat $proteins_fa | seqkit sliding --greedy --step $r --window $r | seqkit seq --min-len 30 >$queries
+	if [ $r == "full" ]; then
+	  queries=$proteins_fa
+	else
+	  queries=$prefix/$proteins_fa
+	  overlap=$( echo $r | awk '{ print $1/2 }' )
+	  echo "Creating subsequences of length $r with overlap of $overlap from $proteins_fa"
+	  cat $proteins_fa | seqkit sliding --greedy --step $overlap --window $r | seqkit seq --min-len 30 >$queries
+	fi
 
+  # TODO: transit across different taxonomic ranks
 	# Classify the sequences
 	if [ ! -d $prefix/$ts_assign_out ]; then 
 		treesapp assign \
 		--fastx_input $queries \
 		--output $prefix/$ts_assign_out \
 		--refpkg_dir $refpkg_dir \
-		-m prot --num_procs 8 --delete --overwrite
+		-m prot --num_procs $n_threads --delete --overwrite
 	fi
 
-	rm $queries
-
+  # Cluster the classified query sequences
 	for f in $refpkg_dir/*pkl
 	do
+	  # Reference-guided based on placement edges
 		treesapp phylotu \
 			--refpkg_path $f \
 			--assign_output $prefix/$ts_assign_out \
 			-o $prefix/$phylotu_out/$( basename $f | sed 's/_build.pkl//g' )\_phylotus_rg_s
+		# De novo clusters by recreating the phylogeny
 		treesapp phylotu \
 			--refpkg_path $f \
 			--assign_output $prefix/$ts_assign_out \
 			-o $prefix/$phylotu_out/$( basename $f | sed 's/_build.pkl//g' )\_phylotus_dn_s \
 			--mode de_novo
 	done
-	exit
 done
 
