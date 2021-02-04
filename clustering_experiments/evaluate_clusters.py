@@ -3,6 +3,7 @@
 import re
 import os
 import glob
+import unittest
 
 import plotly.express as px
 import numpy as np
@@ -15,6 +16,13 @@ _REFPKG_DIR = "clustering_refpkgs"
 # _MODE_NAMES = {"rg": "Reference-guided", "dn": "de novo"}
 # _RANK_PREFIX_MAP = {'s': "Species", 'f': "Family", 'c': "Class"}
 _ACC_TAXON_MAP = {}
+
+
+class Tester(unittest.TestCase):
+    def test_report_query_cohesiveness(self):
+        mock_ce = ClusterExperiment("./")
+        mock_ce.report_query_cohesiveness({"seq1": ['1', '2', '1', '2']})
+        return
 
 
 class ClusterExperiment:
@@ -102,56 +110,69 @@ class ClusterExperiment:
         self.cluster_assignments = merged_cluster_assignments
         return
 
-    def report_query_cohesiveness(self) -> (float, float):
+    @staticmethod
+    def report_query_cohesiveness(cluster_assignments: dict) -> list:
         fragment_ratio = []
-        for clusters in self.cluster_assignments.values():  # type: list
-            fragment_ratio.append((len(set(clusters))/len(clusters)))
+        for clusters in cluster_assignments.values():  # type: list
+            fragment_ratio.append((len(clusters) / (len(clusters) * len(set(clusters)))))
 
-        return np.mean(fragment_ratio), np.median(fragment_ratio)
+        return fragment_ratio
 
 
-def cohesiveness_line_plot(cluster_experiments: list) -> None:
-    means = []
-    medians = []
+def cohesiveness_plots(cluster_experiments: list) -> None:
     ref_pkgs = []
     resolutions = []
     lengths = []
     cluster_modes = []
-    for phylotu_exp in cluster_experiments:  # type: ClusterExperiment
-        mn, md = phylotu_exp.report_query_cohesiveness()
-        means.append(mn)
-        medians.append(md)
+    cohesivity = []
+    means = []
+    for phylotu_exp in sorted(cluster_experiments, key=lambda x: int(x.seq_length)):  # type: ClusterExperiment
+        exp_cohesivity = phylotu_exp.report_query_cohesiveness(phylotu_exp.cluster_assignments)
+        # for x in range(len(exp_cohesivity)):
+        means.append(np.mean(exp_cohesivity))
         cluster_modes.append(phylotu_exp.cluster_mode)
         ref_pkgs.append(phylotu_exp.pkg_name)
         resolutions.append(phylotu_exp.cluster_resolution)
         lengths.append(int(phylotu_exp.seq_length))
+        cohesivity += exp_cohesivity
 
     frag_df = pd.DataFrame(dict(RefPkg=ref_pkgs,
                                 Mean=means,
-                                Median=medians,
                                 Clustering=cluster_modes,
                                 Resolution=resolutions,
                                 Length=lengths))
 
+    # TODO: find a way to facet, group or summarise the line-plot
     line_plt = px.line(frag_df,
                        x="Length", y="Mean",
-                       title="Cluster cohesiveness as a function of query sequence length",
-                       color="Clustering", line_group="Clustering")
+                       color="Clustering", line_group="Clustering",
+                       title="Cluster cohesiveness as a function of query sequence length")
+    # TODO: Scale the y-axis from 0-1
     bar_plt = px.bar(frag_df,
-                     x="Length", y="Mean",
-                     title="Cluster cohesiveness as a function of query sequence length",
-                     barmode="group", color="Clustering", facet_row="RefPkg")
+                     x="RefPkg", y="Mean",
+                     barmode="group", color="Clustering",
+                     title="Cluster cohesiveness as a function of query sequence length")
+    violin_plt = px.violin(frag_df,
+                           x="Clustering", y="Mean", color="Clustering",
+                           color_discrete_sequence=px.colors.qualitative.T10,
+                           box=True, points="all", range_y=[0, 1.01],
+                           labels={"Clustering": "Clustering method",
+                                   "Mean": "Mean Cluster Cohesivity Index"},
+                           title="Cluster cohesiveness as a function of query sequence length")
 
     bar_plt.show()
     line_plt.show()
+    violin_plt.show()
     line_plt.write_image("cohesiveness_line.png", engine="kaleido")
     bar_plt.write_image("cohesiveness_bar.png", engine="kaleido")
+    violin_plt.write_image("cohesiveness_violin.png", engine="kaleido")
 
     return
 
 
 def evaluate_clusters():
     cluster_experiments = []
+    # Process the PhylOTU outputs
     for phylotu_dir in glob.glob("length_*/phylotu_outputs/*"):
         phylotu_exp = ClusterExperiment(directory=phylotu_dir)
         if not phylotu_exp.test_files():
@@ -161,8 +182,10 @@ def evaluate_clusters():
             continue
         phylotu_exp.merge_query_clusters()
         cluster_experiments.append(phylotu_exp)
-    # Number (mean or median) of clusters for each sliced sequence at each length
-    cohesiveness_line_plot(cluster_experiments)
+
+    # Cohesiveness of clusters for each sliced sequence at each length
+    cohesiveness_plots(cluster_experiments)
+
     # TODO: Percentage of sequences that were clustered together correctly at each length and rank
     return
 
