@@ -59,7 +59,7 @@ cp \
 	$refpkgs_repo_dir/Translation/PF01655/seed_refpkg/final_outputs/PF01655_build.pkl \
 	$refpkg_dir
 
-for r in 50 100 200 400 "full"
+for r in `seq 100 50 600`
 do
 	prefix=length_$r
 	if [ -d $prefix ]; then
@@ -68,14 +68,10 @@ do
 	mkdir $prefix
 	mkdir $prefix/$phylotu_out
 
-	if [ $r == "full" ]; then
-	  queries=$proteins_fa
-	else
-	  queries=$prefix/$proteins_fa
-	  overlap=$( echo $r | awk '{ print $1/2 }' )
-	  echo "Creating subsequences of length $r with overlap of $overlap from $proteins_fa"
-	  cat $proteins_fa | seqkit sliding --greedy --step $overlap --window $r | seqkit seq --min-len 30 >$queries
-	fi
+  queries=$prefix/$proteins_fa
+  overlap=$( echo $r | awk '{ print $1/2 }' )
+  echo "Creating subsequences of length $r with overlap of $overlap from $proteins_fa"
+  cat $proteins_fa | seqkit sliding --greedy --step $overlap --window $r | seqkit seq --min-len 30 >$queries
 
   # TODO: transit across different taxonomic ranks
 	# Classify the sequences
@@ -90,17 +86,21 @@ do
   # Cluster the classified query sequences
 	for f in $refpkg_dir/*pkl
 	do
-	  # Reference-guided based on placement edges
-		treesapp phylotu \
-			--refpkg_path $f \
-			--assign_output $prefix/$ts_assign_out \
-			-o $prefix/$phylotu_out/$( basename $f | sed 's/_build.pkl//g' )\_phylotus_rg_s
-		# De novo clusters by recreating the phylogeny
-		treesapp phylotu \
-			--refpkg_path $f \
-			--assign_output $prefix/$ts_assign_out \
-			-o $prefix/$phylotu_out/$( basename $f | sed 's/_build.pkl//g' )\_phylotus_dn_s \
-			--mode de_novo
+	  for rank in "species" "family" "class"
+	  do
+	    # Reference-guided based on placement edges
+      treesapp phylotu \
+        --refpkg_path $f \
+        --assign_output $prefix/$ts_assign_out \
+        --tax_rank $rank \
+        -o $prefix/$phylotu_out/$( basename $f | sed 's/_build.pkl//g' )\_phylotus_rg_$rank
+      # De novo clusters by recreating the phylogeny
+      treesapp phylotu \
+        --refpkg_path $f \
+        --assign_output $prefix/$ts_assign_out \
+        --tax_rank $rank \
+        -o $prefix/$phylotu_out/$( basename $f | sed 's/_build.pkl//g' )\_phylotus_dn_$rank \
+        --mode de_novo
 	done
 done
 

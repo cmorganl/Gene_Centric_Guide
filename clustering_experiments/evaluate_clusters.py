@@ -6,7 +6,6 @@ import glob
 import unittest
 
 import plotly.express as px
-import numpy as np
 import pandas as pd
 
 from treesapp import refpkg
@@ -125,44 +124,41 @@ def cohesiveness_plots(cluster_experiments: list) -> None:
     lengths = []
     cluster_modes = []
     cohesivity = []
-    means = []
     for phylotu_exp in sorted(cluster_experiments, key=lambda x: int(x.seq_length)):  # type: ClusterExperiment
         exp_cohesivity = phylotu_exp.report_query_cohesiveness(phylotu_exp.cluster_assignments)
-        # for x in range(len(exp_cohesivity)):
-        means.append(np.mean(exp_cohesivity))
-        cluster_modes.append(phylotu_exp.cluster_mode)
-        ref_pkgs.append(phylotu_exp.pkg_name)
-        resolutions.append(phylotu_exp.cluster_resolution)
-        lengths.append(int(phylotu_exp.seq_length))
+        cluster_modes += [phylotu_exp.cluster_mode] * len(exp_cohesivity)
+        ref_pkgs += [phylotu_exp.pkg_name] * len(exp_cohesivity)
+        resolutions += [phylotu_exp.cluster_resolution] * len(exp_cohesivity)
+        lengths += [int(phylotu_exp.seq_length)] * len(exp_cohesivity)
         cohesivity += exp_cohesivity
 
     frag_df = pd.DataFrame(dict(RefPkg=ref_pkgs,
-                                Mean=means,
+                                Cohesivity=cohesivity,
                                 Clustering=cluster_modes,
                                 Resolution=resolutions,
                                 Length=lengths))
 
-    # TODO: find a way to facet, group or summarise the line-plot
-    line_plt = px.line(frag_df,
-                       x="Length", y="Mean",
+    line_plt = px.line(frag_df.groupby(["Clustering", "Length"]).mean().reset_index(),
+                       x="Length", y="Cohesivity",
                        color="Clustering", line_group="Clustering",
                        title="Cluster cohesiveness as a function of query sequence length")
-    # TODO: Scale the y-axis from 0-1
-    bar_plt = px.bar(frag_df,
-                     x="RefPkg", y="Mean",
+    line_plt.show()
+
+    bar_plt = px.bar(frag_df.groupby(["Clustering", "RefPkg"]).mean().reset_index(),
+                     x="RefPkg", y="Cohesivity",
                      barmode="group", color="Clustering",
                      title="Cluster cohesiveness as a function of query sequence length")
-    violin_plt = px.violin(frag_df,
-                           x="Clustering", y="Mean", color="Clustering",
+    bar_plt.show()
+
+    violin_plt = px.violin(frag_df.groupby(["RefPkg", "Clustering", "Resolution", "Length"]).mean().reset_index(),
+                           x="Clustering", y="Cohesivity", color="Clustering",
                            color_discrete_sequence=px.colors.qualitative.T10,
                            box=True, points="all", range_y=[0, 1.01],
                            labels={"Clustering": "Clustering method",
-                                   "Mean": "Mean Cluster Cohesivity Index"},
+                                   "Cohesivity": "Mean Cluster Cohesivity Index"},
                            title="Cluster cohesiveness as a function of query sequence length")
-
-    bar_plt.show()
-    line_plt.show()
     violin_plt.show()
+
     line_plt.write_image("cohesiveness_line.png", engine="kaleido")
     bar_plt.write_image("cohesiveness_bar.png", engine="kaleido")
     violin_plt.write_image("cohesiveness_violin.png", engine="kaleido")
