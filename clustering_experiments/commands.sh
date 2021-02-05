@@ -42,11 +42,14 @@ fi
 # Download genomes
 while read line
 do
-	echo "Downloading sequences for $( echo "$line" | gawk -F, '{ print $1 }')"
 	taxid=$( echo "$line" | gawk -F, '{ print $2 }')
 	faa_url=$( echo "$line" | gawk -F, '{ print $4 }')
+	if [ $faa_url == "ProteinsURL" ]; then
+	  continue
+	fi
+	echo "Downloading sequences for $( echo "$line" | gawk -F, '{ print $1 }')"
 	wget -O $taxid.faa.gz $faa_url 1>/dev/null 2>&1
-	gunzip -c $taxid.faa.gz >>$proteins_fa
+	gunzip -c $taxid.faa.gz | seqkit replace -p "^" -r "${taxid}." >>$proteins_fa
 	rm $taxid.faa.gz
 done<$genomes_list
 
@@ -59,7 +62,7 @@ cp \
 	$refpkgs_repo_dir/Translation/PF01655/seed_refpkg/final_outputs/PF01655_build.pkl \
 	$refpkg_dir
 
-for r in $(seq 100 50 600)
+for r in $(seq 100 50 500)
 do
 	prefix=length_$r
 	if [ -d $prefix ]; then
@@ -71,7 +74,9 @@ do
   queries=$prefix/$proteins_fa
   overlap=$( echo $r | awk '{ print $1/2 }' )
   echo "Creating subsequences of length $r with overlap of $overlap from $proteins_fa"
-  cat $proteins_fa | seqkit sliding --greedy --remove-gaps --step $overlap --window $r | seqkit seq --min-len 30 >$queries
+  cat $proteins_fa | \
+  seqkit sliding --greedy --remove-gaps --step $overlap --window $r | \
+  seqkit seq --min-len 30 >$queries
 
   # TODO: transit across different taxonomic ranks
 	# Classify the sequences

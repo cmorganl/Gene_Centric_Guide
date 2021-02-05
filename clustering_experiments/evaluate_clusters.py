@@ -9,6 +9,10 @@ import plotly.express as px
 import pandas as pd
 
 from treesapp import refpkg
+from treesapp import fasta as ts_fasta
+from treesapp import classy as ts_classes
+from treesapp import entrez_utils as ts_entrez
+from treesapp import taxonomic_hierarchy as ts_tax
 
 
 pio.templates.default = "plotly_white"
@@ -32,6 +36,7 @@ class ClusterExperiment:
         self.pkg_name = None
         self.ref_pkg = refpkg.ReferencePackage()
         self.cluster_assignments = {}
+        self.entrez_query_dict = {}
 
         return
 
@@ -111,21 +116,46 @@ class ClusterExperiment:
 
         return fragment_ratio
 
+    def generate_entrez_queries(self) -> None:
+        header_registry = ts_fasta.register_headers(list(self.cluster_assignments.keys()))
+        entrez_record_dict = ts_classes.get_header_info(header_registry)
+        for index, e_record in entrez_record_dict.items():  # type: ts_entrez.EntrezRecord
+            self.entrez_query_dict[e_record.description] = e_record
+        return
 
-def gather_lineages(cluster_experiments: list) -> dict:
-    query_seq_accessions = set()
-    acc_lineage_map = dict()
+
+def retrieve_lineages(cluster_experiments) -> dict:
+    """
+    Determines the format of the query sequence header to extract the accession and/or NCBI taxid then
+    queries the Entrez database using these information to collect the taxonomic lineage for each unique NCBI taxid
+    NCBI taxid and lineage information are stored in self.tax_lineage_map
+
+    :return: None
+    """
+    # Gather the unique taxonomy IDs and store in EntrezRecord instances
+    t_hierarchy = ts_tax.TaxonomicHierarchy()
+    entrez_records = []
+    acc_taxon_map = dict()
     for phylotu_exp in cluster_experiments:  # type: ClusterExperiment
-        query_seq_accessions = query_seq_accessions.union(set(phylotu_exp.cluster_assignments.keys()))
+        phylotu_exp.generate_entrez_queries()
+        entrez_records += [phylotu_exp.entrez_query_dict[index] for index in phylotu_exp.entrez_query_dict]
+    # Query the Entrez database for these unique taxonomy IDs
+    ts_entrez.get_multiple_lineages(entrez_records, t_hierarchy, "prot")
+    t_hierarchy.root_domains(t_hierarchy.find_root_taxon())
 
-    return acc_lineage_map
+    for e_record in entrez_records:  # type: ts_entrez.EntrezRecord
+        acc_taxon_map[e_record.ncbi_tax] = t_hierarchy.get_taxon(e_record.lineage.split(t_hierarchy.lin_sep)[-1])
+
+    return acc_taxon_map
 
 
 def cohesiveness_plots(cluster_experiments: list) -> None:
     palette = px.colors.qualitative.T10
     label_mat = {"Length": "Query sequence length",
-                 "Cohesivity": "Mean Cluster Cohesivity Index",
-                 "RefPkg": "Reference package"}
+                 "Cohesivity": "Cluster Cohesivity Index",
+                 "RefPkg": "Reference package",
+                 "Resolution": "Cluster resolution",
+                 "Clustering": "Clustering method"}
     ref_pkgs = []
     resolutions = []
     lengths = []
@@ -149,8 +179,7 @@ def cohesiveness_plots(cluster_experiments: list) -> None:
                        x="Length", y="Cohesivity",
                        color="Clustering", line_group="Clustering",
                        color_discrete_sequence=palette,
-                       labels={"Length": "Query sequence length",
-                               "Cohesivity": "Mean Cluster Cohesivity Index"},
+                       labels=label_mat,
                        title="Cluster cohesiveness as a function of query sequence length")
     line_plt.update_traces(line=dict(width=4))
     line_plt.show()
@@ -159,8 +188,7 @@ def cohesiveness_plots(cluster_experiments: list) -> None:
                      x="RefPkg", y="Cohesivity",
                      barmode="group", color="Clustering",
                      color_discrete_sequence=palette,
-                     labels={"RefPkg": "Reference package",
-                             "Cohesivity": "Mean Cluster Cohesivity Index"},
+                     labels=label_mat,
                      title="Mean cluster cohesiveness across the different reference packages")
     bar_plt.show()
 
@@ -168,8 +196,7 @@ def cohesiveness_plots(cluster_experiments: list) -> None:
                      x="Resolution", y="Cohesivity",
                      color="Clustering",
                      color_discrete_sequence=palette,
-                     labels={"Resolution": "Cluster resolution",
-                             "Cohesivity": "Cluster Cohesivity Index"},
+                     labels=label_mat,
                      title="Cluster cohesiveness as a function of taxonomic resolution")
     box_plt.show()
 
@@ -177,13 +204,13 @@ def cohesiveness_plots(cluster_experiments: list) -> None:
                            x="Clustering", y="Cohesivity", color="Clustering",
                            color_discrete_sequence=palette,
                            box=True, points="all", range_y=[0, 1.01],
-                           labels={"Clustering": "Clustering method",
-                                   "Cohesivity": "Cluster Cohesivity Index"},
+                           labels=label_mat,
                            title="Comparing cluster cohesiveness between reference-guided and de novo methods")
     violin_plt.show()
 
     line_plt.write_image("cohesiveness_line.png", engine="kaleido")
     bar_plt.write_image("cohesiveness_bar.png", engine="kaleido")
+    box_plt.write_image("cohesiveness_box.png", engine="kaleido")
     violin_plt.write_image("cohesiveness_violin.png", engine="kaleido")
 
     return
@@ -202,7 +229,7 @@ def evaluate_clusters():
         phylotu_exp.merge_query_clusters()
         cluster_experiments.append(phylotu_exp)
 
-    gather_lineages(cluster_experiments)
+    acc_taxon_map = retrieve_lineages(cluster_experiments)
 
     # Cohesiveness of clusters for each sliced sequence at each length
     cohesiveness_plots(cluster_experiments)
