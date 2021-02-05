@@ -59,7 +59,7 @@ cp \
 	$refpkgs_repo_dir/Translation/PF01655/seed_refpkg/final_outputs/PF01655_build.pkl \
 	$refpkg_dir
 
-for r in `seq 100 50 600`
+for r in $(seq 100 50 600)
 do
 	prefix=length_$r
 	if [ -d $prefix ]; then
@@ -71,7 +71,7 @@ do
   queries=$prefix/$proteins_fa
   overlap=$( echo $r | awk '{ print $1/2 }' )
   echo "Creating subsequences of length $r with overlap of $overlap from $proteins_fa"
-  cat $proteins_fa | seqkit sliding --greedy --step $overlap --window $r | seqkit seq --min-len 30 >$queries
+  cat $proteins_fa | seqkit sliding --greedy --remove-gaps --step $overlap --window $r | seqkit seq --min-len 30 >$queries
 
   # TODO: transit across different taxonomic ranks
 	# Classify the sequences
@@ -101,6 +101,6 @@ do
         --tax_rank $rank \
         -o $prefix/$phylotu_out/$( basename $f | sed 's/_build.pkl//g' )\_phylotus_dn_$rank \
         --mode de_novo
-	done
+    done
+  done
 done
-
