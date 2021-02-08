@@ -227,8 +227,7 @@ def find_clustering_accuracy(taxon_cluster_ids: list) -> float:
     return cluster_accuracy(true_row_labels=true_labels, predicted_row_labels=taxon_cluster_ids)
 
 
-def sequence_cohesion_plots(cluster_experiments: list) -> None:
-    palette = px.colors.qualitative.T10
+def prepare_clustering_cohesion_dataframe(cluster_experiments: list) -> pd.DataFrame:
     ref_pkgs = []
     resolutions = []
     lengths = []
@@ -242,12 +241,45 @@ def sequence_cohesion_plots(cluster_experiments: list) -> None:
         lengths += [int(phylotu_exp.seq_length)] * len(exp_cohesion)
         cohesion += exp_cohesion
 
-    frag_df = pd.DataFrame(dict(RefPkg=ref_pkgs,
-                                Cohesion=cohesion,
-                                Clustering=cluster_modes,
-                                Resolution=resolutions,
-                                Length=lengths))
+    return pd.DataFrame(dict(RefPkg=ref_pkgs, Cohesion=cohesion,
+                             Clustering=cluster_modes, Resolution=resolutions, Length=lengths))
 
+
+def prepare_clustering_accuracy_dataframe(cluster_experiments: list) -> pd.DataFrame:
+    re_map = {}
+
+    # data arrays
+    refpkgs = []
+    lengths = []
+    clusters = []
+    resos = []
+    taxa = []
+    accurs = []
+
+    for phylotu_exp in cluster_experiments:  # type: ClusterExperiment
+        if phylotu_exp.cluster_resolution not in re_map:
+            re_map[phylotu_exp.cluster_resolution] = {}
+        taxon_cluster_ids, renamed_taxa = taxonomically_resolve_clusters(phylotu_exp)
+        re_map[phylotu_exp.cluster_resolution].update(renamed_taxa)
+        for taxon in taxon_cluster_ids:  # type: str
+            refpkgs.append(phylotu_exp.pkg_name)
+            lengths.append(int(phylotu_exp.seq_length))
+            clusters.append(phylotu_exp.cluster_mode)
+            resos.append(phylotu_exp.cluster_resolution)
+            taxa.append(taxon)
+            accurs.append(find_clustering_accuracy(taxon_cluster_ids[taxon]))
+
+    for cluster_res in re_map:  # type: str
+        if re_map[cluster_res]:  # type: dict
+            for taxon_name, parent_name in re_map[cluster_res].items():
+                print("Set missing taxonomic {} of {} to '{}'.".format(cluster_res, taxon_name, parent_name))
+
+    return pd.DataFrame(dict(RefPkg=refpkgs, Length=lengths, Clustering=clusters,
+                             Resolution=resos, Taxon=taxa, Accuracy=accurs))
+
+
+def sequence_cohesion_plots(frag_df: pd.DataFrame) -> None:
+    palette = px.colors.qualitative.T10
     line_plt = px.line(frag_df.groupby(["Clustering", "Length"]).mean().reset_index(),
                        x="Length", y="Cohesion",
                        color="Clustering", line_group="Clustering",
@@ -289,51 +321,25 @@ def sequence_cohesion_plots(cluster_experiments: list) -> None:
     return
 
 
-def taxonomic_accuracy_plots(cluster_experiments: list) -> None:
-    re_map = {}
-
-    # data arrays
-    refpkgs = []
-    lengths = []
-    clusters = []
-    resos = []
-    taxa = []
-    accurs = []
-
-    for phylotu_exp in cluster_experiments:  # type: ClusterExperiment
-        if phylotu_exp.cluster_resolution not in re_map:
-            re_map[phylotu_exp.cluster_resolution] = {}
-        taxon_cluster_ids, renamed_taxa = taxonomically_resolve_clusters(phylotu_exp)
-        re_map[phylotu_exp.cluster_resolution].update(renamed_taxa)
-        for taxon in taxon_cluster_ids:  # type: str
-            refpkgs.append(phylotu_exp.pkg_name)
-            lengths.append(int(phylotu_exp.seq_length))
-            clusters.append(phylotu_exp.cluster_mode)
-            resos.append(phylotu_exp.cluster_resolution)
-            taxa.append(taxon)
-            accurs.append(find_clustering_accuracy(taxon_cluster_ids[taxon]))
-
-    for cluster_res in re_map:  # type: str
-        if re_map[cluster_res]:  # type: dict
-            for taxon_name, parent_name in re_map[cluster_res].items():
-                print("Set missing taxonomic {} of {} to '{}'.".format(cluster_res, taxon_name, parent_name))
-
-    clustering_df = pd.DataFrame(dict(RefPkg=refpkgs,
-                                      Length=lengths,
-                                      Clustering=clusters,
-                                      Resolution=resos,
-                                      Taxon=taxa,
-                                      Accuracy=accurs))
-
+def taxonomic_accuracy_plots(clustering_df: pd.DataFrame) -> None:
     palette = px.colors.qualitative.T10
-    violin_plt = px.bar(clustering_df.groupby(["Resolution", "Length", "Clustering"]).mean().reset_index(),
-                           x="Length", y="Accuracy", color="Clustering",
-                           color_discrete_sequence=palette, barmode="group",
-                           facet_col="Resolution",
-                           range_y=[0, 1.01],
+    bar_plt = px.bar(clustering_df.groupby(["Resolution", "Length", "Clustering"]).mean().reset_index(),
+                     x="Length", y="Accuracy", color="Clustering",
+                     color_discrete_sequence=palette, barmode="group",
+                     facet_col="Resolution",
+                     labels=_LABEL_MAT,
+                     title="Comparing clustering accuracy between reference-guided and de novo methods")
+    # bar_plt.show()
+
+    violin_plt = px.violin(clustering_df.groupby(["RefPkg", "Clustering", "Length", "Resolution"]).mean().reset_index(),
+                           x="Clustering", y="Accuracy", color="Clustering",
+                           color_discrete_sequence=palette,
+                           box=True, points="all", range_y=[0, 1.01],
                            labels=_LABEL_MAT,
-                           title="Comparing clustering accuracy between reference-guided and de novo methods")
+                           title="Comparing cluster accuracy between reference-guided and de novo methods")
     # violin_plt.show()
+
+    bar_plt.write_image("accuracy_bars.png", engine="kaleido")
     violin_plt.write_image("accuracy_violin.png", engine="kaleido")
     return
 
@@ -355,10 +361,10 @@ def evaluate_clusters():
     map_queries_to_taxa(cluster_experiments, acc_taxon_map)
 
     # Cohesiveness of clusters for each sliced sequence at each length
-    sequence_cohesion_plots(cluster_experiments)
+    sequence_cohesion_plots(prepare_clustering_cohesion_dataframe(cluster_experiments))
 
     # Percentage of sequences that were clustered together correctly at each length and rank
-    taxonomic_accuracy_plots(cluster_experiments)
+    taxonomic_accuracy_plots(prepare_clustering_accuracy_dataframe(cluster_experiments))
     return
 
 
