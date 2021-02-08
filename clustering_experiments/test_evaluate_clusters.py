@@ -24,9 +24,14 @@ class Tester(unittest.TestCase):
 
     def test_report_query_cohesiveness(self):
 
-        cohesive_list = self.mock_ce.report_query_cohesiveness({"seq1": ['1', '2', '1', '2']})
+        cohesive_list = self.mock_ce.report_query_cohesion({"seq1": ['1', '2', '1', '2']})
         self.assertEqual(1, len(cohesive_list))
         self.assertEqual(0.5, cohesive_list.pop(0))
+        return
+
+    def test_find_clustering_accuracy(self):
+        accuracy = ec.find_clustering_accuracy(['241', '241', '240', '238', '241', '222'])
+        self.assertEqual(0.5, accuracy)
         return
 
 

@@ -62,7 +62,7 @@ cp \
 	$refpkgs_repo_dir/Translation/PF01655/seed_refpkg/final_outputs/PF01655_build.pkl \
 	$refpkg_dir
 
-for r in $(seq 100 50 500)
+for r in $(seq 100 50 600)
 do
 	prefix=length_$r
 	if [ -d $prefix ]; then
@@ -75,10 +75,9 @@ do
   overlap=$( echo $r | awk '{ print $1/2 }' )
   echo "Creating subsequences of length $r with overlap of $overlap from $proteins_fa"
   cat $proteins_fa | \
-  seqkit sliding --greedy --remove-gaps --step $overlap --window $r | \
-  seqkit seq --min-len 30 >$queries
+  seqkit sliding --greedy --step $overlap --window $r | \
+  seqkit seq  --remove-gaps --min-len 30 >$queries
 
-  # TODO: transit across different taxonomic ranks
 	# Classify the sequences
 	if [ ! -d $prefix/$ts_assign_out ]; then 
 		treesapp assign \
