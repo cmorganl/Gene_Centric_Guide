@@ -165,68 +165,6 @@ def map_queries_to_taxa(cluster_experiments: list, accession_taxon_map: dict) ->
     return
 
 
-def sequence_cohesion_plots(cluster_experiments: list) -> None:
-    palette = px.colors.qualitative.T10
-    ref_pkgs = []
-    resolutions = []
-    lengths = []
-    cluster_modes = []
-    cohesion = []
-    for phylotu_exp in sorted(cluster_experiments, key=lambda x: int(x.seq_length)):  # type: ClusterExperiment
-        exp_cohesion = phylotu_exp.report_query_cohesion(phylotu_exp.cluster_assignments)
-        cluster_modes += [phylotu_exp.cluster_mode] * len(exp_cohesion)
-        ref_pkgs += [phylotu_exp.pkg_name] * len(exp_cohesion)
-        resolutions += [phylotu_exp.cluster_resolution] * len(exp_cohesion)
-        lengths += [int(phylotu_exp.seq_length)] * len(exp_cohesion)
-        cohesion += exp_cohesion
-
-    frag_df = pd.DataFrame(dict(RefPkg=ref_pkgs,
-                                Cohesion=cohesion,
-                                Clustering=cluster_modes,
-                                Resolution=resolutions,
-                                Length=lengths))
-
-    line_plt = px.line(frag_df.groupby(["Clustering", "Length"]).mean().reset_index(),
-                       x="Length", y="Cohesion",
-                       color="Clustering", line_group="Clustering",
-                       color_discrete_sequence=palette,
-                       labels=_LABEL_MAT,
-                       title="Cluster cohesion as a function of query sequence length")
-    line_plt.update_traces(line=dict(width=4))
-    line_plt.show()
-
-    bar_plt = px.bar(frag_df.groupby(["Clustering", "RefPkg"]).mean().reset_index(),
-                     x="RefPkg", y="Cohesion",
-                     barmode="group", color="Clustering",
-                     color_discrete_sequence=palette,
-                     labels=_LABEL_MAT,
-                     title="Mean cluster cohesion across the different reference packages")
-    bar_plt.show()
-
-    box_plt = px.box(frag_df,
-                     x="Resolution", y="Cohesion",
-                     color="Clustering",
-                     color_discrete_sequence=palette,
-                     labels=_LABEL_MAT,
-                     title="Cluster cohesion as a function of taxonomic resolution")
-    box_plt.show()
-
-    violin_plt = px.violin(frag_df.groupby(["RefPkg", "Clustering", "Resolution", "Length"]).mean().reset_index(),
-                           x="Clustering", y="Cohesion", color="Clustering",
-                           color_discrete_sequence=palette,
-                           box=True, points="all", range_y=[0, 1.01],
-                           labels=_LABEL_MAT,
-                           title="Comparing cluster cohesion between reference-guided and de novo methods")
-    violin_plt.show()
-
-    line_plt.write_image("cohesion_line.png", engine="kaleido")
-    bar_plt.write_image("cohesion_bar.png", engine="kaleido")
-    box_plt.write_image("cohesion_box.png", engine="kaleido")
-    violin_plt.write_image("cohesion_violin.png", engine="kaleido")
-
-    return
-
-
 def get_key(a_dict: dict, val):
     for key, value in a_dict.items():
         if val == value:
@@ -238,7 +176,7 @@ def taxonomically_resolve_clusters(phylotu_exp: ClusterExperiment) -> (dict, dic
     re_map = {}
     for query in phylotu_exp.cluster_assignments:  # type: str
         taxon = phylotu_exp.query_taxon_map[query]  # type: ts_tax.Taxon
-        taxon_resolved = taxon.get_rank_in_lineage(phylotu_exp.cluster_resolution)
+        taxon_resolved = taxon.get_rank_in_lineage(phylotu_exp.cluster_resolution)  # type: ts_tax.Taxon
         if not taxon_resolved:
             rank_depth = phylotu_exp.ref_pkg.taxa_trie.accepted_ranks_depths[phylotu_exp.cluster_resolution]
             parent_rank = get_key(phylotu_exp.ref_pkg.taxa_trie.accepted_ranks_depths, rank_depth-1)
@@ -248,6 +186,8 @@ def taxonomically_resolve_clusters(phylotu_exp: ClusterExperiment) -> (dict, dic
                 print("Unable to find the {} rank of taxon '{}'.\n".format(phylotu_exp.cluster_resolution, taxon.name))
                 continue
             re_map[taxon.name] = taxon_resolved
+        else:
+            taxon_resolved = taxon_resolved.name
 
         try:
             taxon_cluster_ids[taxon_resolved] += phylotu_exp.cluster_assignments[query]
@@ -287,38 +227,114 @@ def find_clustering_accuracy(taxon_cluster_ids: list) -> float:
     return cluster_accuracy(true_row_labels=true_labels, predicted_row_labels=taxon_cluster_ids)
 
 
+def sequence_cohesion_plots(cluster_experiments: list) -> None:
+    palette = px.colors.qualitative.T10
+    ref_pkgs = []
+    resolutions = []
+    lengths = []
+    cluster_modes = []
+    cohesion = []
+    for phylotu_exp in sorted(cluster_experiments, key=lambda x: int(x.seq_length)):  # type: ClusterExperiment
+        exp_cohesion = phylotu_exp.report_query_cohesion(phylotu_exp.cluster_assignments)
+        cluster_modes += [phylotu_exp.cluster_mode] * len(exp_cohesion)
+        ref_pkgs += [phylotu_exp.pkg_name] * len(exp_cohesion)
+        resolutions += [phylotu_exp.cluster_resolution] * len(exp_cohesion)
+        lengths += [int(phylotu_exp.seq_length)] * len(exp_cohesion)
+        cohesion += exp_cohesion
+
+    frag_df = pd.DataFrame(dict(RefPkg=ref_pkgs,
+                                Cohesion=cohesion,
+                                Clustering=cluster_modes,
+                                Resolution=resolutions,
+                                Length=lengths))
+
+    line_plt = px.line(frag_df.groupby(["Clustering", "Length"]).mean().reset_index(),
+                       x="Length", y="Cohesion",
+                       color="Clustering", line_group="Clustering",
+                       color_discrete_sequence=palette,
+                       labels=_LABEL_MAT,
+                       title="Cluster cohesion as a function of query sequence length")
+    line_plt.update_traces(line=dict(width=4))
+    # line_plt.show()
+
+    bar_plt = px.bar(frag_df.groupby(["Clustering", "RefPkg"]).mean().reset_index(),
+                     x="RefPkg", y="Cohesion",
+                     barmode="group", color="Clustering",
+                     color_discrete_sequence=palette,
+                     labels=_LABEL_MAT,
+                     title="Mean cluster cohesion across the different reference packages")
+    # bar_plt.show()
+
+    box_plt = px.box(frag_df,
+                     x="Resolution", y="Cohesion",
+                     color="Clustering",
+                     color_discrete_sequence=palette,
+                     labels=_LABEL_MAT,
+                     title="Cluster cohesion as a function of taxonomic resolution")
+    # box_plt.show()
+
+    violin_plt = px.violin(frag_df.groupby(["RefPkg", "Clustering", "Resolution", "Length"]).mean().reset_index(),
+                           x="Clustering", y="Cohesion", color="Clustering",
+                           color_discrete_sequence=palette,
+                           box=True, points="all", range_y=[0, 1.01],
+                           labels=_LABEL_MAT,
+                           title="Comparing cluster cohesion between reference-guided and de novo methods")
+    # violin_plt.show()
+
+    line_plt.write_image("cohesion_line.png", engine="kaleido")
+    bar_plt.write_image("cohesion_bar.png", engine="kaleido")
+    box_plt.write_image("cohesion_box.png", engine="kaleido")
+    violin_plt.write_image("cohesion_violin.png", engine="kaleido")
+
+    return
+
+
 def taxonomic_accuracy_plots(cluster_experiments: list) -> None:
-    clustering_df = pd.DataFrame()
     re_map = {}
+
+    # data arrays
+    refpkgs = []
+    lengths = []
+    clusters = []
+    resos = []
+    taxa = []
+    accurs = []
+
     for phylotu_exp in cluster_experiments:  # type: ClusterExperiment
         if phylotu_exp.cluster_resolution not in re_map:
             re_map[phylotu_exp.cluster_resolution] = {}
         taxon_cluster_ids, renamed_taxa = taxonomically_resolve_clusters(phylotu_exp)
         re_map[phylotu_exp.cluster_resolution].update(renamed_taxa)
         for taxon in taxon_cluster_ids:  # type: str
-            acc = find_clustering_accuracy(taxon_cluster_ids[taxon])
-            res = pd.DataFrame(dict(RefPkg=[phylotu_exp.pkg_name],
-                                    Length=[phylotu_exp.seq_length],
-                                    Clustering=[phylotu_exp.cluster_mode],
-                                    Resolution=[phylotu_exp.cluster_resolution],
-                                    Taxon=[taxon],
-                                    Accuracy=[acc]))
-            clustering_df = clustering_df.append(res)
+            refpkgs.append(phylotu_exp.pkg_name)
+            lengths.append(int(phylotu_exp.seq_length))
+            clusters.append(phylotu_exp.cluster_mode)
+            resos.append(phylotu_exp.cluster_resolution)
+            taxa.append(taxon)
+            accurs.append(find_clustering_accuracy(taxon_cluster_ids[taxon]))
 
-    for cluster_res in re_map:
-        if re_map[cluster_res]:
+    for cluster_res in re_map:  # type: str
+        if re_map[cluster_res]:  # type: dict
             for taxon_name, parent_name in re_map[cluster_res].items():
                 print("Set missing taxonomic {} of {} to '{}'.".format(cluster_res, taxon_name, parent_name))
 
+    clustering_df = pd.DataFrame(dict(RefPkg=refpkgs,
+                                      Length=lengths,
+                                      Clustering=clusters,
+                                      Resolution=resos,
+                                      Taxon=taxa,
+                                      Accuracy=accurs))
+
     palette = px.colors.qualitative.T10
-    violin_plt = px.violin(clustering_df,
-                           x="Clustering", y="Accuracy", color="Clustering",
-                           color_discrete_sequence=palette,
+    violin_plt = px.bar(clustering_df.groupby(["Resolution", "Length", "Clustering"]).mean().reset_index(),
+                           x="Length", y="Accuracy", color="Clustering",
+                           color_discrete_sequence=palette, barmode="group",
                            facet_col="Resolution",
-                           box=True, points="all", range_y=[0, 1.01],
+                           range_y=[0, 1.01],
                            labels=_LABEL_MAT,
-                           title="Comparing cluster cohesion between reference-guided and de novo methods")
+                           title="Comparing clustering accuracy between reference-guided and de novo methods")
     # violin_plt.show()
+    violin_plt.write_image("accuracy_violin.png", engine="kaleido")
     return
 
 
@@ -339,7 +355,7 @@ def evaluate_clusters():
     map_queries_to_taxa(cluster_experiments, acc_taxon_map)
 
     # Cohesiveness of clusters for each sliced sequence at each length
-    # sequence_cohesion_plots(cluster_experiments)
+    sequence_cohesion_plots(cluster_experiments)
 
     # Percentage of sequences that were clustered together correctly at each length and rank
     taxonomic_accuracy_plots(cluster_experiments)
