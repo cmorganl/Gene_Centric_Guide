@@ -37,6 +37,7 @@ class ClusterExperiment:
         """Create an instance representing a single treesapp phylotu output."""
         self.dir_path = directory
         self.pquery_assignments_file = os.path.join(self.dir_path, "final_outputs", "phylotu_pquery_assignments.tsv")
+        self.matrix_file = os.path.join(self.dir_path, "final_outputs", "phylotu_matrix.tsv")
         self.seq_length = None
         self.cluster_resolution = None
         self.cluster_mode = None
@@ -98,6 +99,9 @@ class ClusterExperiment:
         self.pkg_name = self.validate_unity(pkg_names)
 
         return 1
+
+    def load_otu_matrix(self, delim="\t") -> pd.DataFrame:
+        return pd.read_csv(self.matrix_file, sep=delim)
 
     def load_ref_pkg(self):
         self.ref_pkg.f__json = os.path.join(_REFPKG_DIR), self.pkg_name + "_build.pkl"
