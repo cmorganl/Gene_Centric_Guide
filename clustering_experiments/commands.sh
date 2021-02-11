@@ -108,3 +108,5 @@ do
     done
   done
 done
+
+python3 evaluate_clusters.py

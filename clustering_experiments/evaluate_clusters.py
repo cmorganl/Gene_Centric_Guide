@@ -317,10 +317,10 @@ def sequence_cohesion_plots(frag_df: pd.DataFrame) -> None:
                            title="Comparing cluster cohesion between reference-guided and de novo methods")
     # violin_plt.show()
 
-    line_plt.write_image("cohesion_line.png", engine="kaleido")
-    bar_plt.write_image("cohesion_bar.png", engine="kaleido")
-    box_plt.write_image("cohesion_box.png", engine="kaleido")
-    violin_plt.write_image("cohesion_violin.png", engine="kaleido")
+    line_plt.write_image("cohesion_line.png", engine="kaleido", scale=4.0)
+    bar_plt.write_image("cohesion_bar.png", engine="kaleido", scale=4.0)
+    box_plt.write_image("cohesion_box.png", engine="kaleido", scale=4.0)
+    violin_plt.write_image("cohesion_violin.png", engine="kaleido", scale=4.0)
 
     return
 
@@ -343,8 +343,8 @@ def taxonomic_accuracy_plots(clustering_df: pd.DataFrame) -> None:
                            title="Comparing cluster accuracy between reference-guided and de novo methods")
     # violin_plt.show()
 
-    bar_plt.write_image("accuracy_bars.png", engine="kaleido")
-    violin_plt.write_image("accuracy_violin.png", engine="kaleido")
+    bar_plt.write_image("accuracy_bars.png", engine="kaleido", scale=4.0)
+    violin_plt.write_image("accuracy_violin.png", engine="kaleido", scale=4.0)
     return
 
 

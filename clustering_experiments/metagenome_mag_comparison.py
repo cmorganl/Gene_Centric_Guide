@@ -12,23 +12,45 @@ from evaluate_clusters import ClusterExperiment
 
 def plot_potu_stats(otu_mat: pd.DataFrame) -> None:
     palette = px.colors.cyclical.Twilight
-    labs = {}
-    bar_plt = px.bar(otu_mat.groupby(["Data_type"]).sum().reset_index(),
+    orf_plt = px.bar(otu_mat.groupby(["Data_type"]).sum().reset_index(),
                      x="Data_type", y="Count", color="Data_type",
                      color_discrete_sequence=palette,
-                     labels=labs,
-                     title="Total ORFs classified between Sakinaw Lake metagenomes and MAGs")
-    bar_plt.update_traces(marker_line_color='rgb(8,48,107)',
+                     labels={"Count": "ORFs classified"},
+                     title="McrA, NosZ, NxrA, HydA or DsrAB ORFs in Sakinaw Lake metagenomes and MAGs")
+    orf_plt.update_traces(marker_line_color='black',
                           marker_line_width=1.5, opacity=0.6)
-    bar_plt.update_layout(xaxis={'visible': False, 'showticklabels': False})
-    bar_plt.show()
+    orf_plt.update_layout(xaxis={'visible': False, 'showticklabels': False},
+                          legend=dict(font=dict(size=15, color="black"),
+                                      orientation="h",
+                                      yanchor="bottom",
+                                      y=1.02,
+                                      xanchor="right",
+                                      x=1),
+                          legend_title=dict(text=''))
+    orf_plt.for_each_trace(lambda a: a.update(name=a.name.replace("metaG", "Metagenome")))
+    # bar_plt.show()
 
-    bar_plt = px.bar(otu_mat.groupby(["Data_type", "RefPkg"]).nunique().reset_index(),
+    otu_plt = px.bar(otu_mat.groupby(["Data_type", "RefPkg"]).nunique().reset_index(),
                      x="RefPkg", y="Count", color="Data_type",
                      color_discrete_sequence=palette, barmode="group",
-                     labels=labs,
-                     title="Discrete pOTUs identified in Sakinaw Lake metagenomes and MAGs")
-    bar_plt.show()
+                     labels={"Count": "pOTUs",
+                             "RefPkg": "Reference package",
+                             "metaG": "Metagenome"},
+                     title="Discrete phylogenetic OTUs identified in Sakinaw Lake metagenomes and MAGs")
+    otu_plt.update_traces(marker_line_color='black',
+                          marker_line_width=1.5, opacity=0.6)
+    otu_plt.update_layout(legend=dict(font=dict(size=15, color="black"),
+                                      orientation="h",
+                                      yanchor="bottom",
+                                      y=1.02,
+                                      xanchor="right",
+                                      x=1),
+                          legend_title=dict(text=''))
+    otu_plt.for_each_trace(lambda a: a.update(name=a.name.replace("metaG", "Metagenome")))
+    # bar_plt.show()
+
+    orf_plt.write_image("num_orfs_bar.png", engine="kaleido", scale=4.0)
+    otu_plt.write_image("num_otus_bar.png", engine="kaleido", scale=4.0)
     return
 
 
