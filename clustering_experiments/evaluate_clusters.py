@@ -7,9 +7,7 @@ import glob
 import plotly.io as pio
 import plotly.express as px
 import pandas as pd
-import numpy as np
-from sklearn.metrics import confusion_matrix
-from scipy.optimize import linear_sum_assignment
+from sklearn.metrics import homogeneity_completeness_v_measure, completeness_score
 from collections import Counter
 
 from treesapp import refpkg
@@ -22,7 +20,7 @@ from treesapp import taxonomic_hierarchy as ts_tax
 pio.templates.default = "plotly_white"
 _REFPKG_DIR = "clustering_refpkgs"
 _LABEL_MAT = {"Length": "Query sequence length",
-              "Cohesion": "Cluster Cohesion Index",
+              "Completeness": "Cluster completeness score",
               "Accuracy": "Cluster accuracy",
               "RefPkg": "Reference package",
               "Resolution": "Cluster resolution",
@@ -121,12 +119,21 @@ class ClusterExperiment:
         return
 
     @staticmethod
-    def report_query_cohesion(cluster_assignments: dict) -> list:
-        fragment_ratio = []
-        for clusters in cluster_assignments.values():  # type: list
-            fragment_ratio.append((len(clusters) / (len(clusters) * len(set(clusters)))))
+    def generate_true_cluster_labels(cluster_ids: list) -> list:
+        cluster_counts = Counter(cluster_ids).most_common()
+        consensus_cluster = cluster_counts[0][0]
+        return [consensus_cluster] * len(cluster_ids)
 
-        return fragment_ratio
+    @staticmethod
+    def report_query_completeness(cluster_assignments: list) -> float:
+        true_labels = ClusterExperiment.generate_true_cluster_labels(cluster_assignments)
+        return round(completeness_score(labels_true=true_labels, labels_pred=cluster_assignments), 3)
+
+    @staticmethod
+    def find_clustering_accuracy(taxon_cluster_ids: list) -> float:
+        true_labels = ClusterExperiment.generate_true_cluster_labels(taxon_cluster_ids)
+        h, c, v = homogeneity_completeness_v_measure(labels_true=true_labels, labels_pred=taxon_cluster_ids)
+        return round(v, 3)
 
     def generate_entrez_queries(self) -> None:
         header_registry = ts_fasta.register_headers(list(self.cluster_assignments.keys()))
@@ -201,36 +208,6 @@ def taxonomically_resolve_clusters(phylotu_exp: ClusterExperiment) -> (dict, dic
     return taxon_cluster_ids, re_map
 
 
-def cluster_accuracy(true_row_labels: list, predicted_row_labels: list) -> float:
-    """
-    Get the best accuracy.
-
-    :param true_row_labels: The true row labels, given as external information
-    :param predicted_row_labels: The row labels predicted by the model
-    :return: Best value of accuracy
-    """
-    cm = confusion_matrix(true_row_labels, predicted_row_labels)
-    rows, columns = linear_sum_assignment(_make_cost_m(cm))
-    total = 0
-    for row, column in zip(list(rows), list(columns)):
-        value = cm[row][column]
-        total += value
-
-    return total * 1. / np.sum(cm)
-
-
-def _make_cost_m(cm: np.array) -> int:
-    s = np.max(cm)
-    return - cm + s
-
-
-def find_clustering_accuracy(taxon_cluster_ids: list) -> float:
-    cluster_counts = Counter(taxon_cluster_ids).most_common()
-    consensus_cluster = cluster_counts[0][0]
-    true_labels = [consensus_cluster] * len(taxon_cluster_ids)
-    return cluster_accuracy(true_row_labels=true_labels, predicted_row_labels=taxon_cluster_ids)
-
-
 def prepare_clustering_cohesion_dataframe(cluster_experiments: list) -> pd.DataFrame:
     ref_pkgs = []
     resolutions = []
@@ -238,14 +215,14 @@ def prepare_clustering_cohesion_dataframe(cluster_experiments: list) -> pd.DataF
     cluster_modes = []
     cohesion = []
     for phylotu_exp in sorted(cluster_experiments, key=lambda x: int(x.seq_length)):  # type: ClusterExperiment
-        exp_cohesion = phylotu_exp.report_query_cohesion(phylotu_exp.cluster_assignments)
-        cluster_modes += [phylotu_exp.cluster_mode] * len(exp_cohesion)
-        ref_pkgs += [phylotu_exp.pkg_name] * len(exp_cohesion)
-        resolutions += [phylotu_exp.cluster_resolution] * len(exp_cohesion)
-        lengths += [int(phylotu_exp.seq_length)] * len(exp_cohesion)
-        cohesion += exp_cohesion
+        for seq_name in phylotu_exp.cluster_assignments:
+            cohesion.append(phylotu_exp.report_query_completeness(phylotu_exp.cluster_assignments[seq_name]))
+            cluster_modes.append(phylotu_exp.cluster_mode)
+            ref_pkgs.append(phylotu_exp.pkg_name)
+            resolutions.append(phylotu_exp.cluster_resolution)
+            lengths.append(int(phylotu_exp.seq_length))
 
-    return pd.DataFrame(dict(RefPkg=ref_pkgs, Cohesion=cohesion,
+    return pd.DataFrame(dict(RefPkg=ref_pkgs, Completeness=cohesion,
                              Clustering=cluster_modes, Resolution=resolutions, Length=lengths))
 
 
@@ -271,7 +248,7 @@ def prepare_clustering_accuracy_dataframe(cluster_experiments: list) -> pd.DataF
             clusters.append(phylotu_exp.cluster_mode)
             resos.append(phylotu_exp.cluster_resolution)
             taxa.append(taxon)
-            accurs.append(find_clustering_accuracy(taxon_cluster_ids[taxon]))
+            accurs.append(phylotu_exp.find_clustering_accuracy(taxon_cluster_ids[taxon]))
 
     for cluster_res in re_map:  # type: str
         if re_map[cluster_res]:  # type: dict
@@ -285,42 +262,33 @@ def prepare_clustering_accuracy_dataframe(cluster_experiments: list) -> pd.DataF
 def sequence_cohesion_plots(frag_df: pd.DataFrame) -> None:
     palette = px.colors.qualitative.T10
     line_plt = px.line(frag_df.groupby(["Clustering", "Length"]).mean().reset_index(),
-                       x="Length", y="Cohesion",
+                       x="Length", y="Completeness",
                        color="Clustering", line_group="Clustering",
                        color_discrete_sequence=palette,
                        labels=_LABEL_MAT,
-                       title="Cluster cohesion as a function of query sequence length")
+                       title="Cluster completeness as a function of query sequence length")
     line_plt.update_traces(line=dict(width=4))
     # line_plt.show()
 
     bar_plt = px.bar(frag_df.groupby(["Clustering", "RefPkg"]).mean().reset_index(),
-                     x="RefPkg", y="Cohesion",
+                     x="RefPkg", y="Completeness",
                      barmode="group", color="Clustering",
                      color_discrete_sequence=palette,
                      labels=_LABEL_MAT,
-                     title="Mean cluster cohesion across the different reference packages")
+                     title="Mean cluster completeness across the different reference packages")
     # bar_plt.show()
 
-    box_plt = px.box(frag_df,
-                     x="Resolution", y="Cohesion",
-                     color="Clustering",
-                     color_discrete_sequence=palette,
-                     labels=_LABEL_MAT,
-                     title="Cluster cohesion as a function of taxonomic resolution")
-    # box_plt.show()
-
     violin_plt = px.violin(frag_df.groupby(["RefPkg", "Clustering", "Resolution", "Length"]).mean().reset_index(),
-                           x="Clustering", y="Cohesion", color="Clustering",
+                           x="Clustering", y="Completeness", color="Clustering",
                            color_discrete_sequence=palette,
                            box=True, points="all", range_y=[0, 1.01],
                            labels=_LABEL_MAT,
-                           title="Comparing cluster cohesion between reference-guided and de novo methods")
+                           title="Comparing cluster completeness between reference-guided and de novo methods")
     # violin_plt.show()
 
-    line_plt.write_image("cohesion_line.png", engine="kaleido", scale=4.0)
-    bar_plt.write_image("cohesion_bar.png", engine="kaleido", scale=4.0)
-    box_plt.write_image("cohesion_box.png", engine="kaleido", scale=4.0)
-    violin_plt.write_image("cohesion_violin.png", engine="kaleido", scale=4.0)
+    line_plt.write_image("completeness_line.png", engine="kaleido", scale=4.0)
+    bar_plt.write_image("completeness_bar.png", engine="kaleido", scale=4.0)
+    violin_plt.write_image("completeness_violin.png", engine="kaleido", scale=4.0)
 
     return
 

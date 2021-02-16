@@ -23,15 +23,21 @@ class Tester(unittest.TestCase):
         return
 
     def test_report_query_cohesiveness(self):
-
-        cohesive_list = self.mock_ce.report_query_cohesion({"seq1": ['1', '2', '1', '2']})
-        self.assertEqual(1, len(cohesive_list))
-        self.assertEqual(0.5, cohesive_list.pop(0))
+        completeness = self.mock_ce.report_query_completeness(['1', '2', '1', '2'])
+        self.assertEqual(0, completeness)
+        completeness = self.mock_ce.report_query_completeness([2, 2, 2, 2, 2])
+        self.assertEqual(1.0, completeness)
         return
 
     def test_find_clustering_accuracy(self):
-        accuracy = ec.find_clustering_accuracy(['241', '241', '240', '238', '241', '222'])
-        self.assertEqual(0.5, accuracy)
+        accuracy = self.mock_ce.find_clustering_accuracy(['241', '241', '240', '238', '241', '222'])
+        self.assertEqual(0.0, accuracy)
+        accuracy = self.mock_ce.find_clustering_accuracy([2, 2, 2, 2, 2, 2, 2])
+        self.assertEqual(1.0, accuracy)
+        return
+
+    def test_cluster_accuracy(self):
+
         return
 
 
