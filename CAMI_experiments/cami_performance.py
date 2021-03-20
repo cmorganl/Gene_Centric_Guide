@@ -1,6 +1,8 @@
 #!/usr/bin/env python
 
+import os
 import re
+import glob
 
 import plotly.express as px
 import plotly.graph_objects as go
@@ -14,7 +16,7 @@ from treesapp import entrez_utils as ts_entrez
 from treesapp import phylo_seq as ts_phyloseq
 from treesapp import refpkg as ts_refpkg
 from treesapp import lca_calculations as ts_lca
-
+from clustering_experiments.evaluate_clusters import ClusterExperiment
 
 _LABEL_MAT = {"Length": "Query sequence length",
               "Completeness": "Cluster completeness score",
@@ -187,8 +189,8 @@ def plot_taxonomic_distance_bubbles(tax_dist_dat: pd.DataFrame) -> None:
                              selector=dict(mode='markers'))
     bubble_plt.update_layout({'plot_bgcolor': 'rgba(0, 0, 0, 0)',
                               'paper_bgcolor': 'rgba(0, 0, 0, 0)'})
-    bubble_plt.update_xaxes(showgrid=True, gridwidth=1, gridcolor='DarkSlateGrey', tickangle=45)
-    bubble_plt.update_yaxes(showgrid=True, gridwidth=1, gridcolor='DarkSlateGrey', dtick=1)
+    bubble_plt.update_xaxes(showgrid=True, gridwidth=1, tickangle=45)
+    bubble_plt.update_yaxes(showgrid=True, gridwidth=1, dtick=1)
 
     bubble_plt.write_image("tax_dist_bubbles.png", engine="kaleido", scale=4.0)
     return
@@ -213,6 +215,36 @@ def summary_stats(tax_dist_dat: pd.DataFrame) -> None:
     else:
         print("Distributions are not significantly different.")
 
+    return
+
+
+def get_potu_df(phylotu_outputs: list):
+    samples_ar = []
+    potu_count_ar = []
+    refpkg_ar = []
+    for phylotu_dir in phylotu_outputs:
+        phylotu_exp = ClusterExperiment(directory=phylotu_dir)
+        if not phylotu_exp.test_files():
+            continue
+        if not phylotu_exp.load_cluster_assignments():
+            continue
+        phylotu_exp.merge_query_clusters()
+        potu_count_ar.append(phylotu_exp.get_unique_potus())
+        samples_ar.append(phylotu_dir.split(os.sep)[0])
+        refpkg_ar.append(phylotu_exp.ref_pkg.prefix)
+    return pd.DataFrame(dict(Sample=samples_ar, OTUs=potu_count_ar, RefPkg=refpkg_ar))
+
+
+def plot_phylotu_boxes(potu_df: pd.DataFrame) -> None:
+    violin_plt = px.violin(potu_df,
+                           x="Sample", y="OTUs",
+                           box=True, points="all", range_y=[0, 310],
+                           labels=_LABEL_MAT,
+                           title="")
+    violin_plt.update_traces(marker=dict(color='DarkSlateGrey'))
+    violin_plt.update_yaxes(showgrid=True, gridwidth=1, dtick=100)
+
+    violin_plt.write_image("pOTU_count_violin.png", engine="kaleido", scale=4.0)
     return
 
 
@@ -242,9 +274,11 @@ def main():
     # Report the mean and variance of each sample and test for significance
     summary_stats(tax_dist_dat)
 
-    # TODO: Count the number of pOTUs for each RefPkg in each output
+    # Count the number of pOTUs for each RefPkg in each output
+    potu_df = get_potu_df(glob.glob("*/phylotu_out_*"))
 
-    # TODO: Plot the pOTUs
+    # Plot the pOTUs
+    plot_phylotu_boxes(potu_df)
 
     return
 

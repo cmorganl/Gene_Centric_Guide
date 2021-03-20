@@ -142,6 +142,12 @@ class ClusterExperiment:
             self.entrez_query_dict[e_record.description] = e_record
         return
 
+    def get_unique_potus(self) -> int:
+        potus = set()
+        for query_potus in self.cluster_assignments.values():
+            potus.update(set(query_potus))
+        return len(potus)
+
 
 def retrieve_lineages(cluster_experiments) -> dict:
     """
