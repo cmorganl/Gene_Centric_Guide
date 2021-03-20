@@ -3,7 +3,9 @@
 import re
 
 import plotly.express as px
+import plotly.graph_objects as go
 import pandas as pd
+from scipy import stats
 
 from treesapp import file_parsers
 from treesapp import classy
@@ -155,16 +157,26 @@ def calculate_taxonomic_distances(sample_assigned_pqueries, tax_lineage_map, ref
     return pd.DataFrame(dict(RefPkg=ref_pkgs_ar, Sample=samples_ar, TaxDist=dists_ar, Size=query_size_ar))
 
 
+def generate_plotly_bubble_size_legend(data: list) -> go.Figure:
+    # TODO: Finish implementing this unless there's an easy way to create a bubble size legend in Plotly
+    fig_legend = go.Figure(data=[go.Scatter(
+        x=[1, 1, 1], y=[min(data), max(data) / 2, max(data)],
+        mode='markers', fillcolor="DarkSlateGrey")])
+    fig_legend.update_layout(yaxis_visible=False, yaxis_showticklabels=False)
+    return fig_legend
+
+
 def plot_taxonomic_distance_bubbles(tax_dist_dat: pd.DataFrame) -> None:
     palette = px.colors.qualitative.Antique
-    # TODO: Filter to remove RefPkgs with fewer than X observations
+
+    # Filter to remove RefPkgs with fewer than 100 observations
+    plt_dat = tax_dist_dat[tax_dist_dat["Size"] >= 100].groupby(["RefPkg", "Sample"]).mean().reset_index()
 
     # Define the bubble plot size legend
-    bubble_legend = px.scatter(x=[1, 1, 1],
-                               y=[min(tax_dist_dat["Size"]), max(tax_dist_dat["Size"])/2, max(tax_dist_dat["Size"])],
-                               color="black")
+    # bubble_legend = generate_plotly_bubble_size_legend(tax_dist_dat["Size"])
+    # bubble_legend.show()
 
-    bubble_plt = px.scatter(tax_dist_dat.groupby(["RefPkg", "Sample"]).mean().reset_index(),
+    bubble_plt = px.scatter(plt_dat,
                             x="RefPkg", y="TaxDist", color="Sample", size="Size",
                             size_max=40,
                             color_discrete_sequence=palette,
@@ -173,9 +185,34 @@ def plot_taxonomic_distance_bubbles(tax_dist_dat: pd.DataFrame) -> None:
     bubble_plt.update_traces(marker=dict(line=dict(width=2,
                                                    color='DarkSlateGrey')),
                              selector=dict(mode='markers'))
+    bubble_plt.update_layout({'plot_bgcolor': 'rgba(0, 0, 0, 0)',
+                              'paper_bgcolor': 'rgba(0, 0, 0, 0)'})
+    bubble_plt.update_xaxes(showgrid=True, gridwidth=1, gridcolor='DarkSlateGrey', tickangle=45)
+    bubble_plt.update_yaxes(showgrid=True, gridwidth=1, gridcolor='DarkSlateGrey', dtick=1)
 
-    bubble_plt.show()
     bubble_plt.write_image("tax_dist_bubbles.png", engine="kaleido", scale=4.0)
+    return
+
+
+def summary_stats(tax_dist_dat: pd.DataFrame) -> None:
+    alpha = 1E-5
+    print("Mean:\n", tax_dist_dat.groupby("Sample")["TaxDist"].mean())
+    print("Variance:\n", tax_dist_dat.groupby("Sample")["TaxDist"].var())
+    k2, p = stats.normaltest(tax_dist_dat["TaxDist"])
+
+    if p < alpha:  # null hypothesis: x comes from a normal distribution
+        print("Normality test P-value = {:.6g}. These data come from a normal distribution")
+    else:
+        print("The null hypothesis cannot be rejected; these data are not normally distributed.")
+
+    x = tax_dist_dat[tax_dist_dat["Sample"] == "RH_S001_merged"]["TaxDist"]
+    y = tax_dist_dat[tax_dist_dat["Sample"] == "gold_standard_high_single"]["TaxDist"]
+    s, p = stats.ttest_ind(x, y)
+    if p < alpha:
+        print("These distributions are significantly different (P-value = {:.6g})".format(p))
+    else:
+        print("Distributions are not significantly different.")
+
     return
 
 
@@ -202,7 +239,8 @@ def main():
     # Plot the taxonomic distances
     plot_taxonomic_distance_bubbles(tax_dist_dat)
 
-    # TODO: Report the mean and variance of each sample and test for significance
+    # Report the mean and variance of each sample and test for significance
+    summary_stats(tax_dist_dat)
 
     # TODO: Count the number of pOTUs for each RefPkg in each output
 
