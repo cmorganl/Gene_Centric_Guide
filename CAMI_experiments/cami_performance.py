@@ -1,9 +1,7 @@
 #!/usr/bin/env python
 
-import os
 import re
 
-import plotly.io as pio
 import plotly.express as px
 import pandas as pd
 
@@ -22,7 +20,8 @@ _LABEL_MAT = {"Length": "Query sequence length",
               "RefPkg": "Reference package",
               "Resolution": "Cluster resolution",
               "Clustering": "Clustering method",
-              "TaxDist": "Taxonomic distance"}
+              "TaxDist": "Taxonomic distance",
+              "Size": "Number of queries"}
 
 
 def generate_entrez_queries(taxids) -> list:
@@ -71,7 +70,7 @@ def match_taxid_to_seqname(cami_pqueries: dict, taxon_mapping_file: str) -> set:
     for pqueries in cami_pqueries.values():
         for pquery in pqueries:  # type: ts_phyloseq.PQuery
             try:
-                pquery.ncbi_tax = seqname_taxid_map['_'.join(pquery.seq_name.split('_')[:-1])]
+                pquery.ncbi_tax = seqname_taxid_map[re.sub(r'/1$', '', '_'.join(pquery.seq_name.split('_')[:-1]))]
                 taxids.add(pquery.ncbi_tax)
             except KeyError:
                 pquery.ncbi_tax = None
@@ -123,13 +122,20 @@ def calculate_taxonomic_distances(sample_assigned_pqueries, tax_lineage_map, ref
     samples_ar = []
     ref_pkgs_ar = []
     dists_ar = []
+    query_size_ar = []
 
     for sample, refpkg_pqueries in sample_assigned_pqueries.items():
         for ref_pkg_name, pqueries in refpkg_pqueries.items():
-            ref_pkg = refpkg_dict[ref_pkg_name]  # type: ts_refpkg.ReferencePackage
+            try:
+                ref_pkg = refpkg_dict[ref_pkg_name]  # type: ts_refpkg.ReferencePackage
+            except KeyError:
+                continue
             ref_pkg.taxa_trie.build_multifurcating_trie()
+            n_queries = len(pqueries)
             for pq in pqueries:  # type: ts_phyloseq.PQuery
                 # Find the optimal taxonomic assignment
+                if not pq.ncbi_tax:
+                    continue
                 true_lineage = ref_pkg.taxa_trie.clean_lineage_string(tax_lineage_map[pq.ncbi_tax])
                 optimal_taxon = ts_lca.optimal_taxonomic_assignment(ref_pkg.taxa_trie.trie, true_lineage)
                 if not optimal_taxon:
@@ -137,26 +143,39 @@ def calculate_taxonomic_distances(sample_assigned_pqueries, tax_lineage_map, ref
                           " not found in reference hierarchy.\n".format(true_lineage,
                                                                         pq.place_name))
                     continue
-                tax_dist, status = ts_lca.compute_taxonomic_distance(pq.lineage, optimal_taxon)
+                tax_dist, status = ts_lca.compute_taxonomic_distance(pq.recommended_lineage, optimal_taxon)
                 if status > 0:
                     print("Lineages didn't converge between:\n"
-                          "'{}' and '{}' (taxid: {})\n".format(pq.lineage, optimal_taxon, pq.ncbi_tax))
+                          "'{}' and '{}' (taxid: {})\n".format(pq.recommended_lineage, optimal_taxon, pq.ncbi_tax))
                 samples_ar.append(sample)
                 ref_pkgs_ar.append(ref_pkg_name)
                 dists_ar.append(tax_dist)
+                query_size_ar.append(n_queries)
 
-    return pd.DataFrame(dict(RefPkg=ref_pkgs_ar, Sample=samples_ar, TaxDist=dists_ar))
+    return pd.DataFrame(dict(RefPkg=ref_pkgs_ar, Sample=samples_ar, TaxDist=dists_ar, Size=query_size_ar))
 
 
 def plot_taxonomic_distance_bubbles(tax_dist_dat: pd.DataFrame) -> None:
-    palette = px.colors.qualitative.T10
+    palette = px.colors.qualitative.Antique
+    # TODO: Filter to remove RefPkgs with fewer than X observations
+
+    # Define the bubble plot size legend
+    bubble_legend = px.scatter(x=[1, 1, 1],
+                               y=[min(tax_dist_dat["Size"]), max(tax_dist_dat["Size"])/2, max(tax_dist_dat["Size"])],
+                               color="black")
+
     bubble_plt = px.scatter(tax_dist_dat.groupby(["RefPkg", "Sample"]).mean().reset_index(),
-                            x="RefPkg", y="TaxDist", color="Sample",
+                            x="RefPkg", y="TaxDist", color="Sample", size="Size",
+                            size_max=40,
                             color_discrete_sequence=palette,
                             labels=_LABEL_MAT,
                             title="")
+    bubble_plt.update_traces(marker=dict(line=dict(width=2,
+                                                   color='DarkSlateGrey')),
+                             selector=dict(mode='markers'))
+
     bubble_plt.show()
-    bubble_plt.write_image("tax_dist_violin.png", engine="kaleido", scale=4.0)
+    bubble_plt.write_image("tax_dist_bubbles.png", engine="kaleido", scale=4.0)
     return
 
 
@@ -182,6 +201,8 @@ def main():
 
     # Plot the taxonomic distances
     plot_taxonomic_distance_bubbles(tax_dist_dat)
+
+    # TODO: Report the mean and variance of each sample and test for significance
 
     # TODO: Count the number of pOTUs for each RefPkg in each output
 
