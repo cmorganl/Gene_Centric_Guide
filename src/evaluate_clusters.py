@@ -324,8 +324,9 @@ def taxonomic_accuracy_plots(clustering_df: pd.DataFrame) -> None:
 
 def evaluate_clusters():
     cluster_experiments = []
+    data_dir = "clustering_experiments" + os.sep
     # Process the PhylOTU outputs
-    for phylotu_dir in glob.glob("length_*/phylotu_outputs/*"):
+    for phylotu_dir in glob.glob(data_dir + "length_*/phylotu_outputs/*"):
         phylotu_exp = ClusterExperiment(directory=phylotu_dir)
         if not phylotu_exp.test_files():
             continue

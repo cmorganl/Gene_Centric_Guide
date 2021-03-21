@@ -234,7 +234,7 @@ def get_potu_df(phylotu_outputs: list):
             continue
         phylotu_exp.merge_query_clusters()
         potu_count_ar.append(phylotu_exp.get_unique_potus())
-        samples_ar.append(phylotu_dir.split(os.sep)[0])
+        samples_ar.append(phylotu_dir.split(os.sep)[1])
         refpkg_ar.append(phylotu_exp.ref_pkg.prefix)
     return pd.DataFrame(dict(Sample=samples_ar, OTUs=potu_count_ar, RefPkg=refpkg_ar))
 
