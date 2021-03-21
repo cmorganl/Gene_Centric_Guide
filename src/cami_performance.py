@@ -16,7 +16,7 @@ from treesapp import entrez_utils as ts_entrez
 from treesapp import phylo_seq as ts_phyloseq
 from treesapp import refpkg as ts_refpkg
 from treesapp import lca_calculations as ts_lca
-from clustering_experiments.evaluate_clusters import ClusterExperiment
+from evaluate_clusters import ClusterExperiment
 
 _LABEL_MAT = {"Length": "Query sequence length",
               "Completeness": "Cluster completeness score",
@@ -180,7 +180,7 @@ def plot_taxonomic_distance_bubbles(tax_dist_dat: pd.DataFrame) -> None:
 
     bubble_plt = px.scatter(plt_dat,
                             x="RefPkg", y="TaxDist", color="Sample", size="Size",
-                            size_max=40,
+                            size_max=20,
                             color_discrete_sequence=palette,
                             labels=_LABEL_MAT,
                             title="")
@@ -203,7 +203,7 @@ def summary_stats(tax_dist_dat: pd.DataFrame) -> None:
     k2, p = stats.normaltest(tax_dist_dat["TaxDist"])
 
     if p < alpha:  # null hypothesis: x comes from a normal distribution
-        print("Normality test P-value = {:.6g}. These data come from a normal distribution")
+        print("Normality test P-value = {:.6g}. These data come from a normal distribution".format(p))
     else:
         print("The null hypothesis cannot be rejected; these data are not normally distributed.")
 
@@ -222,6 +222,10 @@ def get_potu_df(phylotu_outputs: list):
     samples_ar = []
     potu_count_ar = []
     refpkg_ar = []
+    if len(phylotu_outputs) == 0:
+        print("No treesapp phylotu output directories were found.")
+        raise AssertionError
+
     for phylotu_dir in phylotu_outputs:
         phylotu_exp = ClusterExperiment(directory=phylotu_dir)
         if not phylotu_exp.test_files():
@@ -249,17 +253,18 @@ def plot_phylotu_boxes(potu_df: pd.DataFrame) -> None:
 
 
 def main():
-    assign_outputs = {"gold_standard_high_single": "gsa_mapping_pool.binning",
-                      "RH_S001_merged": "gs_read_mapping_1.binning"}
+    data_dir = "CAMI_experiments" + os.sep
+    assign_outputs = {"gold_standard_high_single": data_dir + "gsa_mapping_pool.binning",
+                      "RH_S001_merged": data_dir + "gs_read_mapping_1.binning"}
     refpkg_dir = "refpkgs"
-    refpkg_dict = ts_refpkg.gather_ref_packages(refpkg_data_dir=refpkg_dir)
+    refpkg_dict = ts_refpkg.gather_ref_packages(refpkg_data_dir=data_dir + refpkg_dir)
 
     sample_assigned_pqueries = {}
 
     # Read the assignments from each of the assign_outputs directories
     for assign_out in assign_outputs:
         sample_assigned_pqueries.update({assign_out:
-                                             file_parsers.load_classified_sequences_from_assign_output(assign_output_dir=assign_out,
+                                             file_parsers.load_classified_sequences_from_assign_output(assign_output_dir=data_dir + assign_out,
                                                                                                        assigner_cls=classy.TreeSAPP("cami"))})
 
     # Fetch the taxonomic lineages for the unique NCBI taxonomy IDs from the classified query sequences
@@ -275,7 +280,7 @@ def main():
     summary_stats(tax_dist_dat)
 
     # Count the number of pOTUs for each RefPkg in each output
-    potu_df = get_potu_df(glob.glob("*/phylotu_out_*"))
+    potu_df = get_potu_df(glob.glob(data_dir + "*/phylotu_out_*"))
 
     # Plot the pOTUs
     plot_phylotu_boxes(potu_df)
