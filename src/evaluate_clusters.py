@@ -265,7 +265,7 @@ def prepare_clustering_accuracy_dataframe(cluster_experiments: list) -> pd.DataF
                              Resolution=resos, Taxon=taxa, Accuracy=accurs))
 
 
-def sequence_cohesion_plots(frag_df: pd.DataFrame) -> None:
+def sequence_cohesion_plots(frag_df: pd.DataFrame, output_dir: str) -> None:
     palette = px.colors.qualitative.T10
     line_plt = px.line(frag_df.groupby(["Clustering", "Length"]).mean().reset_index(),
                        x="Length", y="Completeness",
@@ -292,21 +292,21 @@ def sequence_cohesion_plots(frag_df: pd.DataFrame) -> None:
                            title="Comparing cluster completeness between reference-guided and de novo methods")
     # violin_plt.show()
 
-    line_plt.write_image("completeness_line.png", engine="kaleido", scale=4.0)
-    bar_plt.write_image("completeness_bar.png", engine="kaleido", scale=4.0)
-    violin_plt.write_image("completeness_violin.png", engine="kaleido", scale=4.0)
+    line_plt.write_image(os.path.join(output_dir, "completeness_line.png"), engine="kaleido", scale=4.0)
+    bar_plt.write_image(os.path.join(output_dir, "completeness_bar.png"), engine="kaleido", scale=4.0)
+    violin_plt.write_image(os.path.join(output_dir, "completeness_violin.png"), engine="kaleido", scale=4.0)
 
     return
 
 
-def taxonomic_accuracy_plots(clustering_df: pd.DataFrame) -> None:
+def taxonomic_accuracy_plots(clustering_df: pd.DataFrame, output_dir: str) -> None:
     palette = px.colors.qualitative.T10
-    bar_plt = px.bar(clustering_df.groupby(["Resolution", "Length", "Clustering"]).mean().reset_index(),
-                     x="Length", y="Accuracy", color="Clustering",
-                     color_discrete_sequence=palette, barmode="group",
-                     facet_col="Resolution",
-                     labels=_LABEL_MAT,
-                     title="Comparing clustering accuracy between reference-guided and de novo methods")
+    acc_line_plt = px.line(clustering_df.groupby(["Resolution", "Length", "Clustering"]).mean().reset_index(),
+                           x="Length", y="Accuracy", color="Clustering",
+                           color_discrete_sequence=palette, line_group="Clustering",
+                           facet_col="Resolution",
+                           labels=_LABEL_MAT,
+                           title="Comparing clustering accuracy between reference-guided and de novo methods")
     # bar_plt.show()
 
     violin_plt = px.violin(clustering_df.groupby(["RefPkg", "Clustering", "Length", "Resolution"]).mean().reset_index(),
@@ -317,14 +317,15 @@ def taxonomic_accuracy_plots(clustering_df: pd.DataFrame) -> None:
                            title="Comparing cluster accuracy between reference-guided and de novo methods")
     # violin_plt.show()
 
-    bar_plt.write_image("accuracy_bars.png", engine="kaleido", scale=4.0)
-    violin_plt.write_image("accuracy_violin.png", engine="kaleido", scale=4.0)
+    acc_line_plt.write_image(os.path.join(output_dir, "accuracy_lines.png"), engine="kaleido", scale=4.0)
+    violin_plt.write_image(os.path.join(output_dir, "accuracy_violin.png"), engine="kaleido", scale=4.0)
     return
 
 
-def evaluate_clusters():
+def evaluate_clusters(root_dir):
     cluster_experiments = []
-    data_dir = "clustering_experiments" + os.sep
+    data_dir = os.path.join(root_dir, "clustering_experiments") + os.sep
+    fig_dir = os.path.join(root_dir, "figures") + os.sep
     # Process the PhylOTU outputs
     for phylotu_dir in glob.glob(data_dir + "length_*/phylotu_outputs/*"):
         phylotu_exp = ClusterExperiment(directory=phylotu_dir)
@@ -340,12 +341,12 @@ def evaluate_clusters():
     map_queries_to_taxa(cluster_experiments, acc_taxon_map)
 
     # Cohesiveness of clusters for each sliced sequence at each length
-    sequence_cohesion_plots(prepare_clustering_cohesion_dataframe(cluster_experiments))
+    sequence_cohesion_plots(prepare_clustering_cohesion_dataframe(cluster_experiments), fig_dir)
 
     # Percentage of sequences that were clustered together correctly at each length and rank
-    taxonomic_accuracy_plots(prepare_clustering_accuracy_dataframe(cluster_experiments))
+    taxonomic_accuracy_plots(prepare_clustering_accuracy_dataframe(cluster_experiments), fig_dir)
     return
 
 
 if __name__ == "__main__":
-    evaluate_clusters()
+    evaluate_clusters("/media/connor/Rufus/Gene_Centric_Guide/")

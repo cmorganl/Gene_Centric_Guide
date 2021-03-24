@@ -168,7 +168,7 @@ def generate_plotly_bubble_size_legend(data: list) -> go.Figure:
     return fig_legend
 
 
-def plot_taxonomic_distance_bubbles(tax_dist_dat: pd.DataFrame) -> None:
+def plot_taxonomic_distance_bubbles(tax_dist_dat: pd.DataFrame, output_dir: str) -> None:
     palette = px.colors.qualitative.Antique
 
     # Filter to remove RefPkgs with fewer than 100 observations
@@ -192,7 +192,7 @@ def plot_taxonomic_distance_bubbles(tax_dist_dat: pd.DataFrame) -> None:
     bubble_plt.update_xaxes(showgrid=True, gridwidth=1, tickangle=45)
     bubble_plt.update_yaxes(showgrid=True, gridwidth=1, dtick=1)
 
-    bubble_plt.write_image("tax_dist_bubbles.png", engine="kaleido", scale=4.0)
+    bubble_plt.write_image(os.path.join(output_dir, "tax_dist_bubbles.png"), engine="kaleido", scale=4.0)
     return
 
 
@@ -239,7 +239,7 @@ def get_potu_df(phylotu_outputs: list):
     return pd.DataFrame(dict(Sample=samples_ar, OTUs=potu_count_ar, RefPkg=refpkg_ar))
 
 
-def plot_phylotu_boxes(potu_df: pd.DataFrame) -> None:
+def plot_phylotu_boxes(potu_df: pd.DataFrame, output_dir: str) -> None:
     violin_plt = px.violin(potu_df,
                            x="Sample", y="OTUs",
                            box=True, points="all", range_y=[0, 310],
@@ -248,12 +248,13 @@ def plot_phylotu_boxes(potu_df: pd.DataFrame) -> None:
     violin_plt.update_traces(marker=dict(color='DarkSlateGrey'))
     violin_plt.update_yaxes(showgrid=True, gridwidth=1, dtick=100)
 
-    violin_plt.write_image("pOTU_count_violin.png", engine="kaleido", scale=4.0)
+    violin_plt.write_image(os.path.join(output_dir, "pOTU_count_violin.png"), engine="kaleido", scale=4.0)
     return
 
 
-def main():
-    data_dir = "CAMI_experiments" + os.sep
+def main(root_dir):
+    data_dir = os.path.join(root_dir, "CAMI_experiments") + os.sep
+    fig_dir = os.path.join(root_dir, "figures") + os.sep
     assign_outputs = {"gold_standard_high_single": data_dir + "gsa_mapping_pool.binning",
                       "RH_S001_merged": data_dir + "gs_read_mapping_1.binning"}
     refpkg_dir = "refpkgs"
@@ -274,7 +275,7 @@ def main():
     tax_dist_dat = calculate_taxonomic_distances(sample_assigned_pqueries, tax_lineage_map, refpkg_dict)
 
     # Plot the taxonomic distances
-    plot_taxonomic_distance_bubbles(tax_dist_dat)
+    plot_taxonomic_distance_bubbles(tax_dist_dat, fig_dir)
 
     # Report the mean and variance of each sample and test for significance
     summary_stats(tax_dist_dat)
@@ -283,10 +284,10 @@ def main():
     potu_df = get_potu_df(glob.glob(data_dir + "*/phylotu_out_*"))
 
     # Plot the pOTUs
-    plot_phylotu_boxes(potu_df)
+    plot_phylotu_boxes(potu_df, fig_dir)
 
     return
 
 
 if __name__ == "__main__":
-    main()
+    main("/media/connor/Rufus/Gene_Centric_Guide/")
