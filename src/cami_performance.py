@@ -6,6 +6,8 @@ import glob
 
 import plotly.express as px
 import plotly.graph_objects as go
+import ptitprince as pt
+import matplotlib.pyplot as plt
 import pandas as pd
 from scipy import stats
 
@@ -252,11 +254,25 @@ def plot_phylotu_boxes(potu_df: pd.DataFrame, output_dir: str) -> None:
     return
 
 
+def plot_rainclouds(potu_df: pd.DataFrame, output_dir: str) -> None:
+    dx = "Sample"
+    dy = "OTUs"
+    pal = "Set2"
+    sigma = .2
+    f, ax = plt.subplots(figsize=(7, 5))
+    ax = pt.RainCloud(x=dx, y=dy, data=potu_df, palette=pal,
+                      bw=sigma, width_viol=.6, move=.2, ax=ax, orient="h")
+    plt.savefig(fname=os.path.join(output_dir, "raining_pOTUs.png"))
+    # TODO: add lines between reference package points
+    return
+
+
 def main(root_dir):
     data_dir = os.path.join(root_dir, "CAMI_experiments") + os.sep
     fig_dir = os.path.join(root_dir, "figures") + os.sep
     assign_outputs = {"gold_standard_high_single": data_dir + "gsa_mapping_pool.binning",
-                      "RH_S001_merged": data_dir + "gs_read_mapping_1.binning"}
+                      "RH_S001_merged": data_dir + "gs_read_mapping_1.binning",
+                      "RH_S001_forward": data_dir + "gs_read_mapping_1.binning"}
     refpkg_dir = "refpkgs"
     refpkg_dict = ts_refpkg.gather_ref_packages(refpkg_data_dir=data_dir + refpkg_dir)
 
@@ -285,6 +301,8 @@ def main(root_dir):
 
     # Plot the pOTUs
     plot_phylotu_boxes(potu_df, fig_dir)
+
+    plot_rainclouds(potu_df, fig_dir)
 
     return
 
