@@ -306,7 +306,7 @@ def taxonomic_accuracy_plots(clustering_df: pd.DataFrame, output_dir: str) -> No
                            color_discrete_sequence=palette, line_group="Clustering",
                            facet_col="Resolution",
                            labels=_LABEL_MAT,
-                           title="Comparing clustering accuracy between reference-guided and de novo methods")
+                           title="")
     # bar_plt.show()
 
     violin_plt = px.violin(clustering_df.groupby(["RefPkg", "Clustering", "Length", "Resolution"]).mean().reset_index(),
@@ -318,6 +318,7 @@ def taxonomic_accuracy_plots(clustering_df: pd.DataFrame, output_dir: str) -> No
     # violin_plt.show()
 
     acc_line_plt.write_image(os.path.join(output_dir, "accuracy_lines.png"), engine="kaleido", scale=4.0)
+    acc_line_plt.write_image(os.path.join(output_dir, "accuracy_lines.svg"), engine="kaleido", scale=4.0)
     violin_plt.write_image(os.path.join(output_dir, "accuracy_violin.png"), engine="kaleido", scale=4.0)
     return
 

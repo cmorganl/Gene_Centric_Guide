@@ -194,7 +194,8 @@ def plot_taxonomic_distance_bubbles(tax_dist_dat: pd.DataFrame, output_dir: str)
     bubble_plt.update_xaxes(showgrid=True, gridwidth=1, tickangle=45)
     bubble_plt.update_yaxes(showgrid=True, gridwidth=1, dtick=1)
 
-    bubble_plt.write_image(os.path.join(output_dir, "tax_dist_bubbles.svg"), engine="kaleido", scale=4.0)
+    bubble_plt.write_image(os.path.join(output_dir, "tax_dist_bubbles.png"), engine="kaleido", scale=4.0)
+    # bubble_plt.write_image(os.path.join(output_dir, "tax_dist_bubbles.svg"), engine="kaleido", scale=4.0)
     return
 
 
@@ -311,7 +312,7 @@ def plot_phylotu_upset(potu_df: pd.DataFrame, output_dir: str) -> None:
 
     upset_dat = upsetplot.from_contents(otu_memberships)
     upsetplot.plot(upset_dat, sort_by="cardinality", show_percentages=True)
-    plt.savefig(fname=os.path.join(output_dir, "UpSet_pOTUs.svg"))
+    # plt.savefig(fname=os.path.join(output_dir, "UpSet_pOTUs.svg"))
     plt.savefig(fname=os.path.join(output_dir, "UpSet_pOTUs.png"))
 
     return
