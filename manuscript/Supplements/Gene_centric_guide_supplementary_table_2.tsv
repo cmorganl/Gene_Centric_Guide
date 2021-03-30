@@ -1,0 +1,17 @@
+RefPkg	Full Protein Name	Pathway	TIGRFAM	PFam	EggNOG
+HydA	[FeFe] hydrogenase, group A, B1, B3	Hydrogen	TIGR04105|TIGR02512	NA	NA
+NirK	nitrite reductase (NO-forming)	Denitrification,Annamox	NA	NA	NA
+NifD	nitrogenase molybdenum-iron protein alpha chain	Nitrogen fixation	TIGR01282	PF00148	COG2710
+DsrAB	Dissimilatory sulfite reductase, alpha and beta subunits	Sulfur metabolism	TIGR02064|TIGR02066	PF01077	COG2221|ENOG502E52Z
+NapA	Periplasmic nitrate reductase, large subunit	Denitrification	TIGR01706	NA	ENOG501NS3T
+NorB	nitric oxide reductase subunit B	Denitrification	NA	NA	NA
+NarG|NxrA|NarZ	nitrate reductase / nitrite oxidoreductase, alpha subunit	Denitrification	TIGR01580	NA	COG5013
+NirS	nitrite reductase (NO-forming) / hydroxylamine reductase	Denitrification,Annamox	NA	NA	NA
+NxrB	nitrate reductase / nitrite oxidoreductase, beta subunit	Nitrification	NA	NA	NA
+PF00380b	Ribosomal protein S9/S16	Translation	NA	PF00380	NA
+PF00410b	Ribosomal protein S8	Translation	NA	PF00410	NA
+PF00687b	Ribosomal protein L1p/L10e family	Translation	NA	PF00687	NA
+PF00750a	tRNA synthetases class I (R)	Translation	NA	PF00750	NA
+PF00750b	tRNA synthetases class I (R)	Translation	NA	PF00750	NA
+PF01409a	tRNA synthetases class II core domain (F)	Translation	NA	PF01409	NA
+PF01409b	tRNA synthetases class II core domain (F)	Translation	NA	PF01409	NA

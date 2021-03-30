@@ -1,0 +1,4 @@
+FIle	Sequences	ORFs	Sum ORF lengths	min_len	Avg ORF length	max_len	Classifications	ORFs per classification
+CAMI_experiments/RH_S001_forward/intermediates/orf-call/RH_S001.1_ORFs.faa	49905935	46760971	2194505393	20	46.9	50	24765	1888.2
+CAMI_experiments/RH_S001_merged/intermediates/orf-call/RH_S001_merged_ORFs.faa	20472225	21180042	1509440975	20	71.3	97	34918	606.6
+CAMI_experiments/gold_standard_high_single/intermediates/orf-call/gold_standard_high_single_ORFs.faa	42006	2640031	828645361	20	313.9	25054	12591	209.7

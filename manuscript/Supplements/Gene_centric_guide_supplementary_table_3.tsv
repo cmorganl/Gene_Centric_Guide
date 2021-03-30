@@ -1,0 +1,4 @@
+Sample	hmm_coverage	TreeSAPP	Mean	Variance	P-value
+RH_S001_forward	10	0.10.4	1.807745	1.967681	Name: TaxDist, dtype: float64
+RH_S001_merged	10	0.10.4	2.353581	3.551286	Normality test P-value = 0. These data come from a normal distribution
+gold_standard_high_single	10	0.10.4	2.88911	4.533142	These distributions are significantly different (P-value = 2.48891e-152)
