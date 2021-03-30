@@ -189,8 +189,7 @@ def plot_taxonomic_distance_bubbles(tax_dist_dat: pd.DataFrame, output_dir: str)
     bubble_plt.update_traces(marker=dict(line=dict(width=2,
                                                    color='DarkSlateGrey')),
                              selector=dict(mode='markers'))
-    bubble_plt.update_layout({'plot_bgcolor': 'rgba(0, 0, 0, 0)',
-                              'paper_bgcolor': 'rgba(0, 0, 0, 0)'})
+    bubble_plt.update_layout({'plot_bgcolor': 'rgba(0, 0, 0, 0)'})
     bubble_plt.update_xaxes(showgrid=True, gridwidth=1, tickangle=45)
     bubble_plt.update_yaxes(showgrid=True, gridwidth=1, dtick=1)
 
@@ -269,7 +268,7 @@ def plot_rainclouds(potu_df: pd.DataFrame, output_dir: str) -> None:
 
 def main(root_dir):
     data_dir = os.path.join(root_dir, "CAMI_experiments") + os.sep
-    fig_dir = os.path.join(root_dir, "figures") + os.sep
+    fig_dir = os.path.join(root_dir, "manuscript", "figures") + os.sep
     assign_outputs = {"gold_standard_high_single": data_dir + "gsa_mapping_pool.binning",
                       "RH_S001_merged": data_dir + "gs_read_mapping_1.binning",
                       "RH_S001_forward": data_dir + "gs_read_mapping_1.binning"}
