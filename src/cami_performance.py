@@ -10,6 +10,7 @@ import ptitprince as pt
 import matplotlib.pyplot as plt
 import pandas as pd
 from scipy import stats
+import upsetplot
 
 from treesapp import file_parsers
 from treesapp import classy
@@ -193,7 +194,7 @@ def plot_taxonomic_distance_bubbles(tax_dist_dat: pd.DataFrame, output_dir: str)
     bubble_plt.update_xaxes(showgrid=True, gridwidth=1, tickangle=45)
     bubble_plt.update_yaxes(showgrid=True, gridwidth=1, dtick=1)
 
-    bubble_plt.write_image(os.path.join(output_dir, "tax_dist_bubbles.png"), engine="kaleido", scale=4.0)
+    bubble_plt.write_image(os.path.join(output_dir, "tax_dist_bubbles.svg"), engine="kaleido", scale=4.0)
     return
 
 
@@ -219,13 +220,44 @@ def summary_stats(tax_dist_dat: pd.DataFrame) -> None:
     return
 
 
-def get_potu_df(phylotu_outputs: list):
+def merge_otu_matrices(refpkg_otu_matrices: dict, reset_otu_count=True) -> pd.DataFrame:
+    key_name = "#OTU_ID"
+    merged_df = pd.DataFrame()
+    for refpkg_name in refpkg_otu_matrices:
+        # Combine the OTU matrices by columns to generate a single DataFrame
+        result = refpkg_otu_matrices[refpkg_name].pop()  # type: pd.DataFrame
+        for otu_mat in refpkg_otu_matrices[refpkg_name]:
+            result = result.join(otu_mat.set_index(key_name), on=key_name)
+
+        result["RefPkg"] = refpkg_name
+
+        # Merge the combined data frame with pOTU counts for all samples
+        if merged_df.empty:
+            merged_df = result
+        else:
+            merged_df = merged_df.append(result)
+
+    merged_df = merged_df.rename(columns={"#OTU_ID": "OTU"})
+    if reset_otu_count:
+        merged_df["RefPkg_OTU"] = [x for x in range(0, len(merged_df))]
+    if not reset_otu_count:
+        raise AssertionError()
+        # merged_df.assign(RefPkg_OTU=lambda x: x.RefPkg + '-' + x.OTU)
+
+    # Drop the irrelevant and/or redundant variables
+    merged_df = merged_df.drop(["OTU", "RefPkg"], axis=1)
+    return merged_df
+
+
+def get_potu_data(phylotu_outputs: list) -> (pd.DataFrame, pd.DataFrame):
     samples_ar = []
     potu_count_ar = []
     refpkg_ar = []
     if len(phylotu_outputs) == 0:
         print("No treesapp phylotu output directories were found.")
         raise AssertionError
+
+    refpkg_otu_matrices = {}
 
     for phylotu_dir in phylotu_outputs:
         phylotu_exp = ClusterExperiment(directory=phylotu_dir)
@@ -234,10 +266,17 @@ def get_potu_df(phylotu_outputs: list):
         if not phylotu_exp.load_cluster_assignments():
             continue
         phylotu_exp.merge_query_clusters()
+        try:
+            refpkg_otu_matrices[phylotu_exp.pkg_name].append(phylotu_exp.load_otu_matrix())
+        except KeyError:
+            refpkg_otu_matrices[phylotu_exp.pkg_name] = [phylotu_exp.load_otu_matrix()]
         potu_count_ar.append(phylotu_exp.get_unique_potus())
         samples_ar.append(phylotu_dir.split(os.sep)[-2])
-        refpkg_ar.append(phylotu_exp.ref_pkg.prefix)
-    return pd.DataFrame(dict(Sample=samples_ar, OTUs=potu_count_ar, RefPkg=refpkg_ar))
+        refpkg_ar.append(phylotu_exp.pkg_name)
+
+    merged_otu_df = merge_otu_matrices(refpkg_otu_matrices)
+
+    return pd.DataFrame(dict(Sample=samples_ar, OTUs=potu_count_ar, RefPkg=refpkg_ar)), merged_otu_df
 
 
 def plot_phylotu_boxes(potu_df: pd.DataFrame, output_dir: str) -> None:
@@ -250,6 +289,31 @@ def plot_phylotu_boxes(potu_df: pd.DataFrame, output_dir: str) -> None:
     violin_plt.update_yaxes(showgrid=True, gridwidth=1, dtick=100)
 
     violin_plt.write_image(os.path.join(output_dir, "pOTU_count_violin.png"), engine="kaleido", scale=4.0)
+    return
+
+
+def generate_otu_contents(potu_df, index=None) -> dict:
+    memberships = {}
+    potu_df = potu_df.reset_index()
+    for i in potu_df.columns:
+        if i in [index, "index"]:
+            continue
+        memberships[i] = [potu_df[index][x] for x, y in potu_df[i].items() if y > 0]
+    return memberships
+
+
+def plot_phylotu_upset(potu_df: pd.DataFrame, output_dir: str) -> None:
+    index_name = "RefPkg_OTU"
+    tmp_dat = pd.DataFrame()
+    tmp_dat[index_name] = potu_df[index_name]
+    otu_memberships = generate_otu_contents(potu_df, index=index_name)
+    # Subset tmp_dat
+
+    upset_dat = upsetplot.from_contents(otu_memberships)
+    upsetplot.plot(upset_dat, sort_by="cardinality", show_percentages=True)
+    plt.savefig(fname=os.path.join(output_dir, "UpSet_pOTUs.svg"))
+    plt.savefig(fname=os.path.join(output_dir, "UpSet_pOTUs.png"))
+
     return
 
 
@@ -277,6 +341,10 @@ def main(root_dir):
 
     sample_assigned_pqueries = {}
 
+    # Count the number of pOTUs for each RefPkg in each output
+    potu_df, potu_mat = get_potu_data(glob.glob(data_dir + "*/phylotu_out_*"))
+    plot_phylotu_upset(potu_mat, fig_dir)
+
     # Read the assignments from each of the assign_outputs directories
     for assign_out in assign_outputs:
         sample_assigned_pqueries.update({assign_out:
@@ -294,9 +362,6 @@ def main(root_dir):
 
     # Report the mean and variance of each sample and test for significance
     summary_stats(tax_dist_dat)
-
-    # Count the number of pOTUs for each RefPkg in each output
-    potu_df = get_potu_df(glob.glob(data_dir + "*/phylotu_out_*"))
 
     # Plot the pOTUs
     plot_phylotu_boxes(potu_df, fig_dir)
