@@ -98,7 +98,7 @@ Author 7\textsuperscript{1,*}
 \end{flushleft}
 
 \section*{Abstract}
-We present an updated version of TreeSAPP with an expanded capacity for facilitating microbial ecological analyses using functional marker genes. TreeSAPP builds off the foundations built by phylogenetic placement tools to enable users to rapidly screen metagenomic datasets for genes of interest, compare them within an evolutionary framework, and conduct classical microbial ecology analyses. Furthermore, we briefly touch on best practices for gene-centric analyses.
+We present an updated version of TreeSAPP with an expanded capacity for facilitating microbial ecological analyses using functional marker genes. TreeSAPP builds off the foundations built by phylogenetic placement tools to enable users to rapidly screen metagenomic datasets for genes of interest, compare them within an evolutionary framework, and conduct classical microbial ecology analyses. We end by touching on best practices for gene-centric analyses.
 
 % now start line numbers
 \linenumbers
@@ -121,6 +121,17 @@ We present an updated version of TreeSAPP with an expanded capacity for facilita
 \item Why not EggNOG-mapper or other tools?
 \end{enumerate}
 
+\section*{Materials and Methods}
+
+\paragraph{Taxonomic classification of ORFs from raw, merged, and assembled reads}
+
+Simulated metagenome reads and contigs were obtained from the first Critical Assessment of Metagenome Interpretation (CAMI) challenge\cite{}. The reads were merged using BBMerge version 38.89 with default parameters and the 'gold\_standard\_high\_single' metagenome assembly was used without modification. TreeSAPP version \textbf{X.YY.Z} was used to classify sequences from the three datasets using nineteen reference packages that were commonly found in the metagenome (supplementary table 2). Briefly, Prodigal (version 2.6.3) predicted ORFs, homologous sequences were detected by hmmsearch then aligned to reference sequences with hmmalign (version 3.3.2) before phylogenetic placement using EPA-NG (version 0.3.8) \cite{}. The minimum profile HMM coverage was set to 10\% to retain enough ORFs from the unmerged reads for the comparative analysis. This would lead to more false positive classifications, especially among the reference packages involved in respiration.
+
+\paragraph{Phylogenetic clustering}
+
+Determining the breadth of diversity and functional redundancy is critical to understanding the biogeochemistry of an environmental system. We sought to find a method that allows for accurate clustering of metagenomic ORFs, which are often truncated. Being incomplete sequences, this could cause an issue for both traditional pairwise clustering approaches that perform best with full-length sequences and phylogenetic clustering methods that partition the leaf nodes based on an evolutionary distance threshold. To address this, we compared these two methods to one that leverages the phylogenetic placements resulting from taxonomic classification by partitioning the internal and leaf edges. The primary drawback of this approach is disregarding the pendant length distance of a query placement, which may be large enough to prevent a sequence from belonging in a phylogenetic cluster. Regardless, our naive approach assumes this is a rare case and compares favourably (Figure 1A). 
+In this comparison we evaluated the three methods on their ability to ensure queries from related organisms belonged to the same cluster, unrelated organisms belonged to different clusters and instances where related sequences belonged to different clusters was mitigated.
+We chose eighteen genomes (eight Bacteria and ten Archaea; Supplementary Table 1) with three functional (McrA, NifH and SoxB) and two housekeeping (RpoB and Ribosomal protein L32) reference packages. Three different thresholds were used to approximate taxonomic species-, family- and class-resolved clusters. Genomes were 
 
 \marginpar{
 \vspace{.7cm} % adjust vertical position relative to text with \vspace{} - note that you can enter negative numbers to move margin caption up
@@ -131,28 +142,18 @@ Setting up your figure + caption like this looks fancy and does not disrupt the 
 
 \begin{wrapfigure}[19]{l}{75mm}
 % the number in [] of wrapfigure is optional and gives the number of text lines that should be wrapped around the text. Adjust according to your figures height
-\includegraphics[width=75mm]{fig1.pdf}
+\includegraphics[width=75mm]{manuscript/figures/tax_dist_bubbles.png}
 \captionsetup{labelformat=empty} % makes sure dummy caption is blank
 \caption{} % add dummy caption - otherwise \label won't work and figure numbering will not count up
 \label{fig1} % use \ref{fig1} to reference to this figure
 \end{wrapfigure} % avoid blank space here
 the \verb!marginnote! environment. Please note that in this case the figure (\verb!wrapfigure!) and the figure caption (\verb!marginpar!) have to be separated as you can tell from the code. The \verb!wrapfigure! environment can be a bit tricky when it comes to text formatting. Thus some general hints: (a) try to avoid line breaks in the code as this may result in weird formatting around the figure, (b) the figure should not span multiple headlines (sections) and (c) if you encounter problems with the line break right after the \verb!wrapfigure! try using \verb!\mbox{}! to prevent premature line breaks (\mbox{see example in code}). As stated in the figure caption, setting up figures this way requires a bit more manual adjustments but it makes figures blend in nicely without interrupting flow of text.
 
-\section*{Materials and Methods}
-
-\paragraph{Taxonomic classification of ORFs from raw, merged, and assembled reads}
-
-Simulated metagenome reads and contigs were obtained from the first Critical Assessment of Metagenome Interpretation (CAMI) challenge\cite{}. The reads were merged using BBMerge version 38.89 with default parameters and the 'gold\_standard\_high\_single' metagenome assembly was used without modification. TreeSAPP was used to classify sequences from the three datasets using nineteen reference packages that were commonly found in the metagenome (supplementary table 2). Briefly, Prodigal (version 2.6.3) predicted ORFs, homologous sequences were detected by hmmsearch then aligned to reference sequences with hmmalign (version 3.3.2) before phylogenetic placement using EPA-NG (version 0.3.8) \cite{}. The minimum profile HMM coverage was set to 10\% to retain enough ORFs from the unmerged reads for the comparative analysis. This would lead to more false positive classifications, especially among the reference packages involved in respiration.
-
-\paragraph{Phylogenetic clustering}
-
-Determining the breadth of diversity and functional redundancy is critical to understanding the biogeochemistry of an environmental system. We sought to find a method that allows for accurate clustering of metagenomic ORFs, which are often truncated. Being incomplete sequences, this could cause an issue for both traditional pairwise clustering approaches that perform best with full-length sequences and phylogenetic clustering methods that partition the leaf nodes based on an evolutionary distance threshold. To address this, we compared these two methods to one that leverages the phylogenetic placements resulting from taxonomic classification by partitioning the internal and leaf edges. The primary drawback of this approach is disregarding the pendant length distance of a query placement, which may be large enough to prevent a sequence from belonging in a phylogenetic cluster. Regardless, our naive approach assumes this is a rare case and compares favourably (Figure 1A). 
-In this comparison we evaluated the three methods on their ability to ensure queries from related organisms belonged to the same cluster, unrelated organisms belonged to different clusters and instances where related sequences belonged to different clusters was mitigated.
-We chose eighteen genomes (eight Bacteria and ten Archaea; Supplementary Table 1) with three functional (McrA, NifH and SoxB) and two housekeeping (RpoB and Ribosomal protein L32) reference packages. Three different thresholds were used to approximate taxonomic species-, family- and class-resolved clusters. Genomes were 
 
 \section*{Results}
 \subsection*{Merged reads balance richness and accuracy best}
-The number of predicted ORFs and average ORF lengths were 46,760,971 and 46.9, 21,180,042 and 71.3, and 2,640,031 and 313.9 for the forward reads, merged reads and the contigs, respectively (supplementary table 1). The most ORFs were classified from the merged reads (34918), followed by the forward reads (24765) and the contigs (12591). Taxonomic classification accuracy was compared between the three genome sequence processing states on the basis of taxonomic distance (Figure \ref{fig1}A). The average taxonomic distance was 1.8 for the forward reads, 2.3 for the merged reads and 2.8 for the contigs (supplementary table Y). The number of unique pOTUs classified was greatest in the forward reads and merged reads (Figure \ref{fig1}B). 
+The number of predicted ORFs and average ORF lengths were 46,760,971 and 46.9, 21,180,042 and 71.3, and 2,640,031 and 313.9 for the forward reads, merged reads and the contigs, respectively (supplementary table 1). The most ORFs were classified from the merged reads (34918), followed by the forward reads (24765) and the contigs (12591).
+Taxonomic classification accuracy was compared between the three genome sequence processing states on the basis of taxonomic distance (Figure \ref{fig1}). The average taxonomic distance was 1.8 for the forward reads, 2.3 for the merged reads and 2.8 for the contigs (supplementary table Y). The number of unique pOTUs classified was greatest in the forward reads and merged reads (Figure \ref{fig1}B). 
 
 
 \begin{figure}[ht] %s state preferences regarding figure placement here
@@ -216,7 +217,7 @@ We thank just about everybody.
 \nolinenumbers
 
 %This is where your bibliography is generated. Make sure that your .bib file is actually called library.bib
-\bibliography{library}
+\bibliography{TreeSAPP_refs}
 
 %This defines the bibliographies style. Search online for a list of available styles.
 \bibliographystyle{abbrv}
