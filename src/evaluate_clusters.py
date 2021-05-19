@@ -14,7 +14,7 @@ from sklearn.metrics import homogeneity_completeness_v_measure, completeness_sco
 
 pio.templates.default = "plotly_white"
 _REFPKG_DIR = "clustering_refpkgs"
-_LABEL_MAT = {"Length": "Query sequence length",
+_LABEL_MAT = {"Length": "Protein length percentage",
               "Completeness": "Cluster completeness score",
               "Accuracy": "Cluster accuracy",
               "RefPkg": "Reference package",
@@ -57,12 +57,16 @@ class ClusterExperiment:
     def parse_seq_length(self):
         for dir_name in self.dir_path.split(os.sep):
             if self.length_parse_re.match(dir_name):
-                self.seq_length = self.length_parse_re.match(dir_name).group(1)
+                self.seq_length = int(self.length_parse_re.match(dir_name).group(1))
                 break
-            elif dir_name == "length_full":
-                self.seq_length = "Full-length"
         if not self.seq_length:
             raise AssertionError("Unable to determine the sequence length used in '{}'.".format(self.dir_path))
+        try:
+            hmm_len = self.ref_pkg.hmm_length()
+        except ValueError:
+            raise RuntimeError("Unable to load reference package's HMM length.")
+        if self.seq_length > hmm_len:
+            self.seq_length = hmm_len
         return
 
     def set_precluster_mode(self, append=False):
@@ -248,12 +252,13 @@ def prepare_clustering_cohesion_dataframe(cluster_experiments: list) -> pd.DataF
     cluster_modes = []
     cohesion = []
     for phylotu_exp in sorted(cluster_experiments, key=lambda x: int(x.seq_length)):  # type: ClusterExperiment
+        hmm_perc = float(100*int(phylotu_exp.seq_length)/phylotu_exp.ref_pkg.hmm_length())
         for seq_name in phylotu_exp.cluster_assignments:
             cohesion.append(phylotu_exp.report_query_completeness(phylotu_exp.cluster_assignments[seq_name]))
             cluster_modes.append(phylotu_exp.cluster_mode)
             ref_pkgs.append(phylotu_exp.pkg_name)
             resolutions.append(phylotu_exp.cluster_resolution)
-            lengths.append(int(phylotu_exp.seq_length))
+            lengths.append(hmm_perc)
 
     return pd.DataFrame(dict(RefPkg=ref_pkgs, Completeness=cohesion,
                              Clustering=cluster_modes, Resolution=resolutions, Length=lengths))
@@ -275,9 +280,10 @@ def prepare_clustering_accuracy_dataframe(cluster_experiments: list) -> pd.DataF
             re_map[phylotu_exp.cluster_resolution] = {}
         taxon_cluster_ids = phylotu_exp.taxonomically_resolve_clusters()
         re_map[phylotu_exp.cluster_resolution].update(phylotu_exp.renamed_taxa)
+        hmm_perc = float(100*int(phylotu_exp.seq_length)/phylotu_exp.ref_pkg.hmm_length())
         for taxon in taxon_cluster_ids:  # type: str
             refpkgs.append(phylotu_exp.pkg_name)
-            lengths.append(int(phylotu_exp.seq_length))
+            lengths.append(hmm_perc)
             clusters.append(phylotu_exp.cluster_mode)
             resos.append(phylotu_exp.cluster_resolution)
             taxa.append(taxon)
@@ -393,7 +399,10 @@ def taxonomic_accuracy_plots(clustering_df: pd.DataFrame, output_dir: str) -> No
                            facet_col="Resolution",
                            labels=_LABEL_MAT,
                            title="")
-    acc_line_plt.update_traces(line=dict(width=2))
+    acc_line_plt.update_traces(line=dict(width=4))
+    acc_line_plt.update_xaxes(tickangle=45,
+                              title_font={"size": 10},
+                              title_standoff=25)
     # acc_line_plt.show()
 
     violin_plt = px.violin(clustering_df.groupby(["RefPkg", "Clustering", "Length", "Resolution"]).mean().reset_index(),
@@ -462,7 +471,6 @@ def evaluate_clusters(root_dir):
         phylotu_exp = ClusterExperiment(directory=phylotu_dir)
         if not phylotu_exp.test_files():
             continue
-        phylotu_exp.parse_seq_length()
         if not phylotu_exp.load_cluster_assignments():
             continue
         # Load the ClusterExperiment's associated reference package
@@ -472,6 +480,7 @@ def evaluate_clusters(root_dir):
             refpkg_map[phylotu_exp.pkg_name] = phylotu_exp.ref_pkg
         else:
             phylotu_exp.ref_pkg = refpkg_map[phylotu_exp.pkg_name]
+        phylotu_exp.parse_seq_length()
         phylotu_exp.merge_query_clusters()
         cluster_experiments.append(phylotu_exp)
 
