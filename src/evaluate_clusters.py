@@ -66,7 +66,7 @@ class ClusterExperiment:
         return
 
     def set_precluster_mode(self, append=False):
-        for word in os.path.dirname(self.dir_path).split('_'):
+        for word in os.path.basename(self.dir_path).split('_'):
             if word in ["aln", "psc"]:
                 self.precluster_mode = word
                 if append:
@@ -462,11 +462,11 @@ def evaluate_clusters(root_dir):
         phylotu_exp = ClusterExperiment(directory=phylotu_dir)
         if not phylotu_exp.test_files():
             continue
-        phylotu_exp.set_precluster_mode(append=True)
         phylotu_exp.parse_seq_length()
         if not phylotu_exp.load_cluster_assignments():
             continue
         # Load the ClusterExperiment's associated reference package
+        phylotu_exp.set_precluster_mode(append=True)
         if phylotu_exp.pkg_name not in refpkg_map:
             phylotu_exp.load_ref_pkg(refpkg_dir)
             refpkg_map[phylotu_exp.pkg_name] = phylotu_exp.ref_pkg
