@@ -330,7 +330,7 @@ def prepare_taxonomic_summary_dataframe(cluster_experiments: list) -> pd.DataFra
 
 def prepare_evodist_accuracy_dataframe(cluster_experiments: list) -> pd.DataFrame:
     data_dict = {"RefPkg": [],
-                 "Method": [],
+                 "Clustering": [],
                  "Length": [],
                  "Query": [],
                  "Proper": [],
@@ -342,7 +342,7 @@ def prepare_evodist_accuracy_dataframe(cluster_experiments: list) -> pd.DataFram
                          taxon in taxon_cluster_ids}
         for query_name, fragments in phylotu_exp.cluster_assignments.items():  # type: (str, list)
             data_dict["RefPkg"] += [phylotu_exp.pkg_name]*len(fragments)
-            data_dict["Method"] += [phylotu_exp.cluster_mode]*len(fragments)
+            data_dict["Clustering"] += [phylotu_exp.cluster_mode]*len(fragments)
             data_dict["Length"] += [phylotu_exp.seq_length]*len(fragments)
             data_dict["Query"] += [query_name]*len(fragments)
             repr_taxon = phylotu_exp.match_query_to_taxon_cluster(query_name)
@@ -396,13 +396,17 @@ def taxonomic_accuracy_plots(clustering_df: pd.DataFrame, output_dir: str) -> No
     acc_line_plt = px.line(clustering_df.groupby(["Resolution", "Length", "Clustering"]).mean().reset_index(),
                            x="Length", y="Accuracy", color="Clustering",
                            color_discrete_sequence=palette, line_group="Clustering",
+                           facet_col_spacing=0.05,
+                           range_x=[10, 105],
                            facet_col="Resolution",
                            labels=_LABEL_MAT,
-                           title="")
+                           title="Effect of sequence length on clustering accuracy at different resolutions")
     acc_line_plt.update_traces(line=dict(width=4))
+    acc_line_plt.update_yaxes(autorange=True)
     acc_line_plt.update_xaxes(tickangle=45,
                               title_font={"size": 10},
-                              title_standoff=25)
+                              title_standoff=10)
+    acc_line_plt.for_each_annotation(lambda a: a.update(text=a.text.split("=")[-1]))
     # acc_line_plt.show()
 
     violin_plt = px.violin(clustering_df.groupby(["RefPkg", "Clustering", "Length", "Resolution"]).mean().reset_index(),
@@ -445,7 +449,7 @@ def evolutionary_summary_plots(evo_df: pd.DataFrame, output_dir: str) -> None:
     palette = px.colors.qualitative.T10
     ps_plt = px.scatter(evo_df,
                         x="Pendant", y="Distal",
-                        color="Method",
+                        color="Clustering",
                         facet_col="Proper",
                         color_discrete_sequence=palette,
                         labels=_LABEL_MAT,
