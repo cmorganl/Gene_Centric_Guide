@@ -7,6 +7,7 @@ import glob
 import plotly.io as pio
 import plotly.express as px
 import pandas as pd
+from bokeh import palettes
 from sklearn.metrics import homogeneity_completeness_v_measure, completeness_score
 from collections import Counter
 
@@ -15,6 +16,7 @@ from treesapp import fasta as ts_fasta
 from treesapp import classy as ts_classes
 from treesapp import entrez_utils as ts_entrez
 from treesapp import taxonomic_hierarchy as ts_tax
+from treesapp import lca_calculations
 
 
 pio.templates.default = "plotly_white"
@@ -39,6 +41,7 @@ class ClusterExperiment:
         self.seq_length = None
         self.cluster_resolution = None
         self.cluster_mode = None
+        self.precluster_mode = None
         self.pkg_name = None
         self.ref_pkg = refpkg.ReferencePackage()
         self.cluster_assignments = {}
@@ -46,6 +49,9 @@ class ClusterExperiment:
         self.query_taxon_map = {}
 
         return
+
+    def __str__(self):
+        return "'{}' ClusterExperiment at resolution '{}'".format(self.pkg_name, self.cluster_resolution)
 
     def test_files(self) -> bool:
         if not os.path.exists(self.pquery_assignments_file):
@@ -62,6 +68,14 @@ class ClusterExperiment:
                 self.seq_length = "Full-length"
         if not self.seq_length:
             raise AssertionError("Unable to determine the sequence length used in '{}'.".format(self.dir_path))
+        return
+
+    def set_precluster_mode(self):
+        for word in os.path.dirname(self.dir_path).split('_'):
+            if word in ["aln", "psc"]:
+                self.precluster_mode = word
+        if self.precluster_mode is None:
+            self.precluster_mode = "NA"
         return
 
     @staticmethod
@@ -101,8 +115,8 @@ class ClusterExperiment:
     def load_otu_matrix(self, delim="\t") -> pd.DataFrame:
         return pd.read_csv(self.matrix_file, sep=delim)
 
-    def load_ref_pkg(self):
-        self.ref_pkg.f__json = os.path.join(_REFPKG_DIR), self.pkg_name + "_build.pkl"
+    def load_ref_pkg(self, refpkgs_root_dir: str):
+        self.ref_pkg.f__pkl = os.path.join(refpkgs_root_dir, self.pkg_name + "_build.pkl")
         self.ref_pkg.slurp()
         return
 
@@ -265,6 +279,36 @@ def prepare_clustering_accuracy_dataframe(cluster_experiments: list) -> pd.DataF
                              Resolution=resos, Taxon=taxa, Accuracy=accurs))
 
 
+def prepare_taxonomic_summary_dataframe(cluster_experiments: list) -> pd.DataFrame:
+    pqueries_accounted = set()
+    data_dict = {"RefPkg": [],
+                 "Taxon": [],
+                 "Related": [],
+                 "Rank": []}
+    for phylotu_exp in cluster_experiments:  # type: ClusterExperiment
+        if set(phylotu_exp.query_taxon_map).issubset(pqueries_accounted):
+            continue
+        phylotu_exp.ref_pkg.taxa_trie.build_multifurcating_trie()
+        taxonomic_tree = phylotu_exp.ref_pkg.all_possible_assignments()
+        for query_name in phylotu_exp.cluster_assignments:
+            if query_name in pqueries_accounted:
+                continue
+            else:
+                pqueries_accounted.add(query_name)
+            query_taxon = phylotu_exp.query_taxon_map[query_name]  # type: ts_tax.Taxon
+            data_dict["RefPkg"].append(phylotu_exp.pkg_name)
+            data_dict["Taxon"].append(query_taxon.name)
+            query_lineage = "; ".join([t.prefix_taxon() for t in query_taxon.lineage() if
+                                       t.rank in phylotu_exp.ref_pkg.taxa_trie.accepted_ranks_depths])
+            relative = lca_calculations.optimal_taxonomic_assignment(query_taxon=query_lineage, trie=taxonomic_tree)
+            closest_taxon = relative.split(phylotu_exp.ref_pkg.taxa_trie.lin_sep)[-1]
+            data_dict["Related"].append(closest_taxon)
+            rank = phylotu_exp.ref_pkg.taxa_trie.get_taxon(closest_taxon).rank
+            data_dict["Rank"].append(rank)
+
+    return pd.DataFrame(data_dict)
+
+
 def sequence_cohesion_plots(frag_df: pd.DataFrame, output_dir: str) -> None:
     palette = px.colors.qualitative.T10
     line_plt = px.line(frag_df.groupby(["Clustering", "Length"]).mean().reset_index(),
@@ -307,7 +351,8 @@ def taxonomic_accuracy_plots(clustering_df: pd.DataFrame, output_dir: str) -> No
                            facet_col="Resolution",
                            labels=_LABEL_MAT,
                            title="")
-    # bar_plt.show()
+    acc_line_plt.update_traces(line=dict(width=2))
+    # acc_line_plt.show()
 
     violin_plt = px.violin(clustering_df.groupby(["RefPkg", "Clustering", "Length", "Resolution"]).mean().reset_index(),
                            x="Clustering", y="Accuracy", color="Clustering",
@@ -318,28 +363,61 @@ def taxonomic_accuracy_plots(clustering_df: pd.DataFrame, output_dir: str) -> No
     # violin_plt.show()
 
     acc_line_plt.write_image(os.path.join(output_dir, "accuracy_lines.png"), engine="kaleido", scale=4.0)
-    acc_line_plt.write_image(os.path.join(output_dir, "accuracy_lines.svg"), engine="kaleido", scale=4.0)
+    # acc_line_plt.write_image(os.path.join(output_dir, "accuracy_lines.svg"), engine="kaleido", scale=4.0)
     violin_plt.write_image(os.path.join(output_dir, "accuracy_violin.png"), engine="kaleido", scale=4.0)
+    return
+
+
+def taxonomic_summary_plots(taxa_df: pd.DataFrame, output_dir: str) -> None:
+    ranks = ['domain', 'phylum', 'class', 'order', 'family', 'genus', 'species']
+    palette = palettes.linear_palette(px.colors.diverging.PuOr, len(ranks))
+    palette_map = {ranks[i]: palette[i] for i in range(0, len(ranks))}
+    taxa_df.index = pd.MultiIndex.from_frame(taxa_df, names=["refpkg", "taxon", "related", "rank"])
+    count_df = pd.merge(left=taxa_df.count(level="refpkg").get("Related").reset_index(name="sum"),
+                        right=taxa_df.groupby(["RefPkg", "Rank"]).count().get("Related").reset_index(name="count"),
+                        how="inner", left_on="refpkg", right_on="RefPkg")
+    count_df["Proportion"] = count_df["count"]/count_df["sum"]
+
+    stacked_ranks_plt = px.bar(count_df,
+                               x="RefPkg", y="Proportion",
+                               color="Rank",
+                               color_discrete_map=palette_map,
+                               category_orders={"Rank": ranks},
+                               labels=_LABEL_MAT,
+                               title="Taxonomic relationships between reference package and query sequences")
+    # stacked_ranks_plt.show()
+    stacked_ranks_plt.write_image(os.path.join(output_dir, "taxa_stack.png"), engine="kaleido", scale=4.0)
     return
 
 
 def evaluate_clusters(root_dir):
     cluster_experiments = []
+    refpkg_map = {}
     data_dir = os.path.join(root_dir, "clustering_experiments") + os.sep
+    refpkg_dir = os.path.join(data_dir, _REFPKG_DIR)
     fig_dir = os.path.join(root_dir, "manuscript", "figures") + os.sep
     # Process the PhylOTU outputs
     for phylotu_dir in glob.glob(data_dir + "length_*/phylotu_outputs/*"):
         phylotu_exp = ClusterExperiment(directory=phylotu_dir)
         if not phylotu_exp.test_files():
             continue
+        phylotu_exp.set_precluster_mode()
         phylotu_exp.parse_seq_length()
         if not phylotu_exp.load_cluster_assignments():
             continue
+        if phylotu_exp.pkg_name not in refpkg_map:
+            phylotu_exp.load_ref_pkg(refpkg_dir)
+            refpkg_map[phylotu_exp.pkg_name] = phylotu_exp.ref_pkg
+        else:
+            phylotu_exp.ref_pkg = refpkg_map[phylotu_exp.pkg_name]
         phylotu_exp.merge_query_clusters()
         cluster_experiments.append(phylotu_exp)
 
     acc_taxon_map = retrieve_lineages(cluster_experiments)
     map_queries_to_taxa(cluster_experiments, acc_taxon_map)
+
+    # Taxonomic summary plots
+    taxonomic_summary_plots(prepare_taxonomic_summary_dataframe(cluster_experiments), fig_dir)
 
     # Cohesiveness of clusters for each sliced sequence at each length
     sequence_cohesion_plots(prepare_clustering_cohesion_dataframe(cluster_experiments), fig_dir)
