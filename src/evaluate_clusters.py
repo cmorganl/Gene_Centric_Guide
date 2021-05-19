@@ -1,23 +1,16 @@
 #!/usr/bin/env python3
 
-import re
-import os
 import glob
-
-import plotly.io as pio
-import plotly.express as px
-import pandas as pd
-from bokeh import palettes
-from sklearn.metrics import homogeneity_completeness_v_measure, completeness_score
+import os
+import re
 from collections import Counter
 
-from treesapp import refpkg
-from treesapp import fasta as ts_fasta
-from treesapp import classy as ts_classes
-from treesapp import entrez_utils as ts_entrez
-from treesapp import taxonomic_hierarchy as ts_tax
-from treesapp import lca_calculations
-
+import pandas as pd
+import treesapp as ts
+import plotly.express as px
+import plotly.io as pio
+from bokeh import palettes
+from sklearn.metrics import homogeneity_completeness_v_measure, completeness_score
 
 pio.templates.default = "plotly_white"
 _REFPKG_DIR = "clustering_refpkgs"
@@ -43,8 +36,9 @@ class ClusterExperiment:
         self.cluster_mode = None
         self.precluster_mode = None
         self.pkg_name = None
-        self.ref_pkg = refpkg.ReferencePackage()
+        self.ref_pkg = ts.refpkg.ReferencePackage()
         self.cluster_assignments = {}
+        self.phylo_place_map = {}
         self.entrez_query_dict = {}
         self.query_taxon_map = {}
 
@@ -92,15 +86,19 @@ class ClusterExperiment:
         cluster_modes = set()
         pkg_names = set()
         header = assignments_handler.readline().strip().split(delim)
-        if header != ['PQuery', 'RefPkg', 'Resolution', 'Mode', 'OTU_ID']:
+        if header != ['PQuery', 'RefPkg', 'Resolution', 'Mode', 'pOTU', "d_Distal", "d_Pendant", "d_MeanTip"]:
             raise AssertionError("Unexpected table format detected by header differences.")
 
         line = assignments_handler.readline()
         if not line:
             return 0
         while line:
-            qseq_name, ref_pkg, resolution, mode, cluster_id = line.strip().split(delim)
+            qseq_name, ref_pkg, resolution, mode, cluster_id, distal, pendant, mean_tip = line.strip().split(delim)
             self.cluster_assignments[qseq_name] = cluster_id
+            pplace = ts.phylo_seq.PhyloPlace()
+            pplace.name = qseq_name
+            pplace.set_attribute_types(pquery_dists=','.join([distal, pendant, mean_tip]))
+            self.phylo_place_map[qseq_name] = pplace
             cluster_res.add(resolution)
             cluster_modes.add(mode)
             pkg_names.add(ref_pkg)
@@ -122,14 +120,19 @@ class ClusterExperiment:
 
     def merge_query_clusters(self):
         merged_cluster_assignments = {}
+        merged_pplaces = {}
         for qseq_name, cluster in self.cluster_assignments.items():
+            pplace = self.phylo_place_map[qseq_name]
             if self.qseq_slider_re.search(qseq_name):
                 qseq_name = self.qseq_slider_re.sub(repl='', string=qseq_name)
             try:
                 merged_cluster_assignments[qseq_name].append(cluster)
+                merged_pplaces[qseq_name].append(pplace)
             except KeyError:
                 merged_cluster_assignments[qseq_name] = [cluster]
+                merged_pplaces[qseq_name] = [pplace]
         self.cluster_assignments = merged_cluster_assignments
+        self.phylo_place_map = merged_pplaces
         return
 
     @staticmethod
@@ -150,9 +153,9 @@ class ClusterExperiment:
         return round(v, 3)
 
     def generate_entrez_queries(self) -> None:
-        header_registry = ts_fasta.register_headers(list(self.cluster_assignments.keys()))
-        entrez_record_dict = ts_classes.get_header_info(header_registry)
-        for index, e_record in entrez_record_dict.items():  # type: ts_entrez.EntrezRecord
+        header_registry = ts.fasta.register_headers(list(self.cluster_assignments.keys()))
+        entrez_record_dict = ts.classy.get_header_info(header_registry)
+        for index, e_record in entrez_record_dict.items():  # type: ts.entrez_utils.EntrezRecord
             self.entrez_query_dict[e_record.description] = e_record
         return
 
@@ -172,17 +175,17 @@ def retrieve_lineages(cluster_experiments) -> dict:
     :return: None
     """
     # Gather the unique taxonomy IDs and store in EntrezRecord instances
-    t_hierarchy = ts_tax.TaxonomicHierarchy()
+    t_hierarchy = ts.taxonomic_hierarchy.TaxonomicHierarchy()
     entrez_records = []
     acc_taxon_map = dict()
     for phylotu_exp in cluster_experiments:  # type: ClusterExperiment
         phylotu_exp.generate_entrez_queries()
         entrez_records += [phylotu_exp.entrez_query_dict[index] for index in phylotu_exp.entrez_query_dict]
     # Query the Entrez database for these unique taxonomy IDs
-    ts_entrez.get_multiple_lineages(entrez_records, t_hierarchy, "prot")
+    ts.entrez_utils.get_multiple_lineages(entrez_records, t_hierarchy, "prot")
     t_hierarchy.root_domains(t_hierarchy.find_root_taxon())
 
-    for e_record in entrez_records:  # type: ts_entrez.EntrezRecord
+    for e_record in entrez_records:  # type: ts.entrez_utils.EntrezRecord
         acc_taxon_map[e_record.ncbi_tax] = t_hierarchy.get_taxon(e_record.lineage.split(t_hierarchy.lin_sep)[-1])
 
     return acc_taxon_map
@@ -206,8 +209,8 @@ def taxonomically_resolve_clusters(phylotu_exp: ClusterExperiment) -> (dict, dic
     taxon_cluster_ids = {}
     re_map = {}
     for query in phylotu_exp.cluster_assignments:  # type: str
-        taxon = phylotu_exp.query_taxon_map[query]  # type: ts_tax.Taxon
-        taxon_resolved = taxon.get_rank_in_lineage(phylotu_exp.cluster_resolution)  # type: ts_tax.Taxon
+        taxon = phylotu_exp.query_taxon_map[query]  # type: ts.taxonomic_hierarchy.Taxon
+        taxon_resolved = taxon.get_rank_in_lineage(phylotu_exp.cluster_resolution)  # type: ts.taxonomic_hierarchy.Taxon
         if not taxon_resolved:
             rank_depth = phylotu_exp.ref_pkg.taxa_trie.accepted_ranks_depths[phylotu_exp.cluster_resolution]
             parent_rank = get_key(phylotu_exp.ref_pkg.taxa_trie.accepted_ranks_depths, rank_depth-1)
@@ -295,12 +298,12 @@ def prepare_taxonomic_summary_dataframe(cluster_experiments: list) -> pd.DataFra
                 continue
             else:
                 pqueries_accounted.add(query_name)
-            query_taxon = phylotu_exp.query_taxon_map[query_name]  # type: ts_tax.Taxon
+            query_taxon = phylotu_exp.query_taxon_map[query_name]  # type: ts.taxonomic_hierarchy.Taxon
             data_dict["RefPkg"].append(phylotu_exp.pkg_name)
             data_dict["Taxon"].append(query_taxon.name)
             query_lineage = "; ".join([t.prefix_taxon() for t in query_taxon.lineage() if
                                        t.rank in phylotu_exp.ref_pkg.taxa_trie.accepted_ranks_depths])
-            relative = lca_calculations.optimal_taxonomic_assignment(query_taxon=query_lineage, trie=taxonomic_tree)
+            relative = ts.lca_calculations.optimal_taxonomic_assignment(query_taxon=query_lineage, trie=taxonomic_tree)
             closest_taxon = relative.split(phylotu_exp.ref_pkg.taxa_trie.lin_sep)[-1]
             data_dict["Related"].append(closest_taxon)
             rank = phylotu_exp.ref_pkg.taxa_trie.get_taxon(closest_taxon).rank
@@ -405,6 +408,7 @@ def evaluate_clusters(root_dir):
         phylotu_exp.parse_seq_length()
         if not phylotu_exp.load_cluster_assignments():
             continue
+        # Load the ClusterExperiment's associated reference package
         if phylotu_exp.pkg_name not in refpkg_map:
             phylotu_exp.load_ref_pkg(refpkg_dir)
             refpkg_map[phylotu_exp.pkg_name] = phylotu_exp.ref_pkg
