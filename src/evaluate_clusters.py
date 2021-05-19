@@ -41,6 +41,7 @@ class ClusterExperiment:
         self.phylo_place_map = {}
         self.entrez_query_dict = {}
         self.query_taxon_map = {}
+        self.renamed_taxa = {}
 
         return
 
@@ -64,10 +65,12 @@ class ClusterExperiment:
             raise AssertionError("Unable to determine the sequence length used in '{}'.".format(self.dir_path))
         return
 
-    def set_precluster_mode(self):
+    def set_precluster_mode(self, append=False):
         for word in os.path.dirname(self.dir_path).split('_'):
             if word in ["aln", "psc"]:
                 self.precluster_mode = word
+                if append:
+                    self.cluster_mode += "-" + self.precluster_mode
         if self.precluster_mode is None:
             self.precluster_mode = "NA"
         return
@@ -134,6 +137,39 @@ class ClusterExperiment:
         self.cluster_assignments = merged_cluster_assignments
         self.phylo_place_map = merged_pplaces
         return
+
+    def taxonomically_resolve_clusters(self) -> dict:
+        taxon_cluster_ids = {}
+        for query in self.cluster_assignments:  # type: str
+            taxon = self.query_taxon_map[query]  # type: ts.taxonomic_hierarchy.Taxon
+            taxon_resolved = taxon.get_rank_in_lineage(
+                self.cluster_resolution)  # type: ts.taxonomic_hierarchy.Taxon
+            if not taxon_resolved:
+                rank_depth = self.ref_pkg.taxa_trie.accepted_ranks_depths[self.cluster_resolution]
+                parent_rank = get_key(self.ref_pkg.taxa_trie.accepted_ranks_depths, rank_depth - 1)
+                try:
+                    taxon_resolved = taxon.get_rank_in_lineage(parent_rank).name + " " + self.cluster_resolution
+                except KeyError:
+                    print("Unable to find the {} rank of taxon '{}'.\n".format(self.cluster_resolution,
+                                                                               taxon.name))
+                    continue
+                self.renamed_taxa[taxon.name] = taxon_resolved
+            else:
+                taxon_resolved = taxon_resolved.name
+
+            if taxon_resolved not in taxon_cluster_ids:
+                taxon_cluster_ids[taxon_resolved] = []
+            taxon_cluster_ids[taxon_resolved] += self.cluster_assignments[query]
+
+        return taxon_cluster_ids
+
+    def match_query_to_taxon_cluster(self, seq_name: str) -> str:
+        taxon = self.query_taxon_map[seq_name]
+        taxon_resolved = taxon.get_rank_in_lineage(self.cluster_resolution)
+        if not taxon_resolved or taxon.name in self.renamed_taxa:
+            return self.renamed_taxa[taxon.name]
+        else:
+            return taxon_resolved.name
 
     @staticmethod
     def generate_true_cluster_labels(cluster_ids: list) -> list:
@@ -205,32 +241,6 @@ def get_key(a_dict: dict, val):
             return key
 
 
-def taxonomically_resolve_clusters(phylotu_exp: ClusterExperiment) -> (dict, dict):
-    taxon_cluster_ids = {}
-    re_map = {}
-    for query in phylotu_exp.cluster_assignments:  # type: str
-        taxon = phylotu_exp.query_taxon_map[query]  # type: ts.taxonomic_hierarchy.Taxon
-        taxon_resolved = taxon.get_rank_in_lineage(phylotu_exp.cluster_resolution)  # type: ts.taxonomic_hierarchy.Taxon
-        if not taxon_resolved:
-            rank_depth = phylotu_exp.ref_pkg.taxa_trie.accepted_ranks_depths[phylotu_exp.cluster_resolution]
-            parent_rank = get_key(phylotu_exp.ref_pkg.taxa_trie.accepted_ranks_depths, rank_depth-1)
-            try:
-                taxon_resolved = taxon.get_rank_in_lineage(parent_rank).name + " " + phylotu_exp.cluster_resolution
-            except KeyError:
-                print("Unable to find the {} rank of taxon '{}'.\n".format(phylotu_exp.cluster_resolution, taxon.name))
-                continue
-            re_map[taxon.name] = taxon_resolved
-        else:
-            taxon_resolved = taxon_resolved.name
-
-        try:
-            taxon_cluster_ids[taxon_resolved] += phylotu_exp.cluster_assignments[query]
-        except KeyError:
-            taxon_cluster_ids[taxon_resolved] = phylotu_exp.cluster_assignments[query]
-
-    return taxon_cluster_ids, re_map
-
-
 def prepare_clustering_cohesion_dataframe(cluster_experiments: list) -> pd.DataFrame:
     ref_pkgs = []
     resolutions = []
@@ -263,8 +273,8 @@ def prepare_clustering_accuracy_dataframe(cluster_experiments: list) -> pd.DataF
     for phylotu_exp in cluster_experiments:  # type: ClusterExperiment
         if phylotu_exp.cluster_resolution not in re_map:
             re_map[phylotu_exp.cluster_resolution] = {}
-        taxon_cluster_ids, renamed_taxa = taxonomically_resolve_clusters(phylotu_exp)
-        re_map[phylotu_exp.cluster_resolution].update(renamed_taxa)
+        taxon_cluster_ids = phylotu_exp.taxonomically_resolve_clusters()
+        re_map[phylotu_exp.cluster_resolution].update(phylotu_exp.renamed_taxa)
         for taxon in taxon_cluster_ids:  # type: str
             refpkgs.append(phylotu_exp.pkg_name)
             lengths.append(int(phylotu_exp.seq_length))
@@ -309,6 +319,35 @@ def prepare_taxonomic_summary_dataframe(cluster_experiments: list) -> pd.DataFra
             rank = phylotu_exp.ref_pkg.taxa_trie.get_taxon(closest_taxon).rank
             data_dict["Rank"].append(rank)
 
+    return pd.DataFrame(data_dict)
+
+
+def prepare_evodist_accuracy_dataframe(cluster_experiments: list) -> pd.DataFrame:
+    data_dict = {"RefPkg": [],
+                 "Method": [],
+                 "Length": [],
+                 "Query": [],
+                 "Proper": [],
+                 "Pendant": [],
+                 "Distal": []}
+    for phylotu_exp in cluster_experiments:  # type: ClusterExperiment
+        taxon_cluster_ids = phylotu_exp.taxonomically_resolve_clusters()
+        true_clusters = {taxon: phylotu_exp.generate_true_cluster_labels(taxon_cluster_ids[taxon]) for
+                         taxon in taxon_cluster_ids}
+        for query_name, fragments in phylotu_exp.cluster_assignments.items():  # type: (str, list)
+            data_dict["RefPkg"] += [phylotu_exp.pkg_name]*len(fragments)
+            data_dict["Method"] += [phylotu_exp.cluster_mode]*len(fragments)
+            data_dict["Length"] += [phylotu_exp.seq_length]*len(fragments)
+            data_dict["Query"] += [query_name]*len(fragments)
+            repr_taxon = phylotu_exp.match_query_to_taxon_cluster(query_name)
+            for potu in fragments:
+                if potu in true_clusters[repr_taxon]:
+                    data_dict["Proper"].append(True)
+                else:
+                    data_dict["Proper"].append(False)
+            for pplace in phylotu_exp.phylo_place_map[query_name]:  # type: ts.phylo_seq.PhyloPlace
+                data_dict["Pendant"].append(pplace.pendant_length)
+                data_dict["Distal"].append(pplace.distal_length)
     return pd.DataFrame(data_dict)
 
 
@@ -393,6 +432,25 @@ def taxonomic_summary_plots(taxa_df: pd.DataFrame, output_dir: str) -> None:
     return
 
 
+def evolutionary_summary_plots(evo_df: pd.DataFrame, output_dir: str) -> None:
+    palette = px.colors.qualitative.T10
+    ps_plt = px.scatter(evo_df,
+                        x="Pendant", y="Distal",
+                        color="Method",
+                        facet_col="Proper",
+                        color_discrete_sequence=palette,
+                        labels=_LABEL_MAT,
+                        render_mode="svg",
+                        title="Distribution evolutionary distances between query and reference sequences")
+    ps_plt.update_traces(marker=dict(size=6,
+                         line=dict(width=1,
+                                   color='DarkSlateGrey')),
+                         selector=dict(mode='markers'))
+    # ps_plt.show()
+    ps_plt.write_image(os.path.join(output_dir, "evo_dist_scatter.png"), engine="kaleido", scale=4.0)
+    return
+
+
 def evaluate_clusters(root_dir):
     cluster_experiments = []
     refpkg_map = {}
@@ -404,7 +462,7 @@ def evaluate_clusters(root_dir):
         phylotu_exp = ClusterExperiment(directory=phylotu_dir)
         if not phylotu_exp.test_files():
             continue
-        phylotu_exp.set_precluster_mode()
+        phylotu_exp.set_precluster_mode(append=True)
         phylotu_exp.parse_seq_length()
         if not phylotu_exp.load_cluster_assignments():
             continue
@@ -422,6 +480,8 @@ def evaluate_clusters(root_dir):
 
     # Taxonomic summary plots
     taxonomic_summary_plots(prepare_taxonomic_summary_dataframe(cluster_experiments), fig_dir)
+
+    evolutionary_summary_plots(prepare_evodist_accuracy_dataframe(cluster_experiments), fig_dir)
 
     # Cohesiveness of clusters for each sliced sequence at each length
     sequence_cohesion_plots(prepare_clustering_cohesion_dataframe(cluster_experiments), fig_dir)
