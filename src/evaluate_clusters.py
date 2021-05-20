@@ -436,9 +436,9 @@ def taxonomic_relationships_plot(hierarchy_df: pd.DataFrame, output_dir: str) ->
                  category_orders={"Related": ranks},
                  labels=_LABEL_MAT,
                  title="Taxonomic relationships between EggNOG query sequences")
-    fig.update_traces(marker_line_color='rgb(8,48,107)',
+    fig.update_traces(marker_line_color='rgb(105,105,105)',
                       marker_line_width=1.5)
-    fig.show()
+
     fig.write_image(os.path.join(output_dir, "relationship_bars.png"), engine="kaleido", scale=4.0)
     return
 
@@ -502,6 +502,7 @@ def sequence_cohesion_plots(frag_df: pd.DataFrame, output_dir: str) -> None:
                            box=True, range_y=[0, 1.01],
                            labels=_LABEL_MAT,
                            title="Comparing cluster completeness between reference-guided and de novo methods")
+    violin_plt.update_layout(showlegend=False)
     # violin_plt.show()
 
     line_plt.write_image(os.path.join(output_dir, "completeness_line.png"), engine="kaleido", scale=4.0)
@@ -535,6 +536,7 @@ def taxonomic_accuracy_plots(clustering_df: pd.DataFrame, output_dir: str) -> No
                            box=True, points="all", range_y=[0, 1.01],
                            labels=_LABEL_MAT,
                            title="Comparing cluster accuracy between reference-guided and de novo methods")
+    violin_plt.update_layout(showlegend=False)
     # violin_plt.show()
 
     acc_line_plt.write_image(os.path.join(output_dir, "accuracy_lines.png"), engine="kaleido", scale=4.0)
@@ -560,6 +562,8 @@ def taxonomic_summary_plots(taxa_df: pd.DataFrame, output_dir: str) -> None:
                                category_orders={"Rank": ranks},
                                labels=_LABEL_MAT,
                                title="Taxonomic relationships between reference package and query sequences")
+    stacked_ranks_plt.update_traces(marker_line_color='rgb(105,105,105)',
+                                    marker_line_width=1)
     # stacked_ranks_plt.show()
     stacked_ranks_plt.write_image(os.path.join(output_dir, "taxa_stack.png"), engine="kaleido", scale=4.0)
     return
@@ -573,7 +577,9 @@ def evolutionary_summary_plots(evo_df: pd.DataFrame, output_dir: str) -> None:
                         facet_col="Proper",
                         facet_row="Clustering",
                         color_discrete_sequence=palette,
-                        category_orders={"Clustering": ["de_novo-aln", "de_novo-psc", "ref_guided"]},
+                        category_orders={"Clustering": ["de_novo-aln", "de_novo-psc", "ref_guided"],
+                                         "RefPkg": ["RecA", "RpoB", "PF01655",
+                                                    "NifH", "SoxY", "McrA"]},
                         labels=_LABEL_MAT,
                         render_mode="svg",
                         title="Distribution evolutionary distances between query and reference sequences")
@@ -594,13 +600,13 @@ def evolutionary_summary_plots(evo_df: pd.DataFrame, output_dir: str) -> None:
             annotation["text"] = annotation["text"].split("=")[-1]
 
     # Customize the colour legend
-    # ps_plt.update_layout(showlegend=False)
     ps_plt.update_layout(legend_title_text='')
     ps_plt.update_layout(legend=dict(
         orientation="h",
+        itemsizing="constant",
         yanchor="bottom",
         y=-0.25,
-        xanchor="right",
+        xanchor="center",
         x=0.5
     ))
 
