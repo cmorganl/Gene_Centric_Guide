@@ -9,3 +9,4 @@ ptitprince~=0.2.5
 matplotlib~=3.4.1
 UpSetPlot~=0.4.1
 bokeh~=2.3.2
+tqdm~=4.59.0

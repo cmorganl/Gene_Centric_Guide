@@ -372,6 +372,77 @@ def prepare_taxonomic_summary_dataframe(cluster_experiments: list) -> pd.DataFra
     return pd.DataFrame(data_dict)
 
 
+def prepare_relationships_dataframe(cluster_experiments: list) -> pd.DataFrame:
+    refpkg_pqueries = {}
+    pqueries_accounted = set()
+    rank_depths = None
+    data_dict = {"RefPkg": [],
+                 "Related": [],
+                 "Count": []}
+
+    for phylotu_exp in cluster_experiments:  # type: ClusterExperiment
+        if not rank_depths:
+            rank_depths = phylotu_exp.ref_pkg.taxa_trie.accepted_ranks_depths
+        if set(phylotu_exp.query_taxon_map).issubset(pqueries_accounted):
+            continue
+        if phylotu_exp.pkg_name not in refpkg_pqueries:
+            refpkg_pqueries[phylotu_exp.pkg_name] = []
+        for pquery in phylotu_exp.query_taxon_map:
+            if pquery not in pqueries_accounted:
+                refpkg_pqueries[phylotu_exp.pkg_name].append(phylotu_exp.query_taxon_map[pquery])
+                pqueries_accounted.add(pquery)
+
+    p_bar = tqdm(ncols=100)
+    for ref_pkg, taxa in refpkg_pqueries.items():
+        p_bar.reset(total=len(taxa))
+        p_bar.set_description(desc="Counting taxonomic relationships for {}".format(ref_pkg))
+        counts = {}
+        r_taxon = taxa.pop()  # type: ts.taxonomic_hierarchy.Taxon
+        while taxa:
+            lcr = 'root'  # lowest common rank
+            for q_taxon in taxa:
+                lca = ts.taxonomic_hierarchy.Taxon.lca(r_taxon, q_taxon)
+                while lca.rank not in rank_depths:
+                    lca = lca.parent
+                if rank_depths[lca.rank] > rank_depths[lcr]:
+                    lcr = lca.rank
+                if lcr == "species":
+                    break
+            try:
+                counts[lcr] += 1
+            except KeyError:
+                counts[lcr] = 1
+            r_taxon = taxa.pop()
+            p_bar.update()
+
+        for rank in counts:
+            data_dict["RefPkg"].append(ref_pkg)
+            data_dict["Related"].append(rank)
+            data_dict["Count"].append(counts[rank])
+    p_bar.close()
+    return pd.DataFrame(data_dict)
+
+
+def taxonomic_relationships_plot(hierarchy_df: pd.DataFrame, output_dir: str) -> None:
+    ranks = ['root', 'domain', 'phylum', 'class', 'order', 'family', 'genus', 'species']
+    palette = palettes.linear_palette(px.colors.diverging.PuOr, len(ranks))
+    palette_map = {ranks[i]: palette[i] for i in range(0, len(ranks))}
+
+    fig = px.bar(hierarchy_df,
+                 x="RefPkg", y="Count",
+                 color="Related",
+                 barmode="group",
+                 color_discrete_map=palette_map,
+                 category_orders={"Related": ranks},
+                 labels=_LABEL_MAT,
+                 title="Taxonomic relationships between EggNOG query sequences")
+    fig.update_traces(marker_line_color='rgb(8,48,107)',
+                      marker_line_width=1.5)
+    fig.show()
+    fig.write_image(os.path.join(output_dir, "relationship_bars.png"), engine="kaleido", scale=4.0)
+    return
+
+
 def prepare_evodist_accuracy_dataframe(cluster_experiments: list) -> pd.DataFrame:
     data_dict = {"RefPkg": [],
                  "Clustering": [],
@@ -574,6 +645,8 @@ def evaluate_clusters(root_dir):
     print("Mapping query sequences to taxa")
     map_queries_to_taxa(cluster_experiments, acc_taxon_map)
     filter_incomplete_lineages(cluster_experiments)
+
+    taxonomic_relationships_plot(prepare_relationships_dataframe(cluster_experiments), fig_dir)
 
     # Taxonomic summary plots
     taxonomic_summary_plots(prepare_taxonomic_summary_dataframe(cluster_experiments), fig_dir)
