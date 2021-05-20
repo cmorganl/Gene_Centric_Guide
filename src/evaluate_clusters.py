@@ -495,10 +495,10 @@ def taxonomic_summary_plots(taxa_df: pd.DataFrame, output_dir: str) -> None:
 
 
 def evolutionary_summary_plots(evo_df: pd.DataFrame, output_dir: str) -> None:
-    palette = px.colors.qualitative.T10
+    palette = px.colors.qualitative.Safe
     ps_plt = px.scatter(evo_df,
                         x="Pendant", y="Distal",
-                        color="Clustering",
+                        color="RefPkg",
                         facet_col="Proper",
                         facet_row="Clustering",
                         color_discrete_sequence=palette,
@@ -521,8 +521,17 @@ def evolutionary_summary_plots(evo_df: pd.DataFrame, output_dir: str) -> None:
         annotation['textangle'] = 0
         if annotation["text"].startswith("Clustering"):
             annotation["text"] = annotation["text"].split("=")[-1]
-    # Remove the redundant colour legend
-    ps_plt.update_layout(showlegend=False)
+
+    # Customize the colour legend
+    # ps_plt.update_layout(showlegend=False)
+    ps_plt.update_layout(legend_title_text='')
+    ps_plt.update_layout(legend=dict(
+        orientation="h",
+        yanchor="bottom",
+        y=-0.25,
+        xanchor="right",
+        x=0.5
+    ))
 
     ps_plt.write_image(os.path.join(output_dir, "evo_dist_scatter.png"), engine="kaleido", scale=4.0)
     return
