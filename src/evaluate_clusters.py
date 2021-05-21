@@ -5,6 +5,7 @@ import os
 import sys
 import re
 from collections import Counter
+import itertools
 
 import pandas as pd
 import treesapp as ts
@@ -14,6 +15,7 @@ import plotly.io as pio
 from bokeh import palettes
 from tqdm import tqdm
 from sklearn.metrics import homogeneity_completeness_v_measure, completeness_score
+from scipy.signal import savgol_filter
 
 pio.templates.default = "plotly_white"
 _REFPKG_DIR = "clustering_refpkgs"
@@ -520,13 +522,43 @@ def sequence_cohesion_plots(frag_df: pd.DataFrame, output_dir: str) -> None:
     return
 
 
+def smooth_sav_golay(df: pd.DataFrame, group_vars: list, sort_var: str, num_var: str,
+                     ret_var="Spline", w=5, p=3) -> pd.DataFrame:
+    ret_df = pd.DataFrame({})
+    var_groups = {}
+    group_vals_map = {k: [] for k in group_vars}
+    for var in group_vars:
+        var_groups.update({v: var for v in set(df[var])})
+        group_vals_map[var] = set(df[var])
+    combos = itertools.product(list(group_vals_map.values()).pop(0),
+                               list(group_vals_map.values()).pop(1))
+    for c in combos:
+        group_df = df.copy()
+        for val in c:
+            group_df = group_df[group_df[var_groups[val]] == val].sort_values(by=sort_var)
+        if len(group_df) == 0:
+            continue
+        group_df[ret_var] = savgol_filter(group_df[num_var], window_length=w, polyorder=p)
+        ret_df = pd.concat([ret_df, group_df])
+
+    return ret_df
+
+
 def taxonomic_accuracy_plots(clustering_df: pd.DataFrame, output_dir: str) -> None:
     palette = px.colors.qualitative.T10
-    acc_line_plt = px.line(clustering_df.groupby(["Resolution", "Length", "Clustering"]).mean().reset_index(),
-                           x="Length", y="Accuracy", color="Clustering",
+    box_fig_name = "accuracy_boxes"
+    line_fig_name = "accuracy_lines"
+
+    mean_clust_df = smooth_sav_golay(clustering_df.groupby(["Resolution", "Length", "Clustering"]).mean().reset_index(),
+                                     group_vars=["Resolution", "Clustering"],
+                                     num_var="Accuracy",
+                                     sort_var="Length", w=5, p=3)
+    acc_line_plt = px.line(mean_clust_df,
+                           x="Length", y="Spline", color="Clustering",
                            color_discrete_sequence=palette, line_group="Clustering",
                            facet_col_spacing=0.05,
-                           range_x=[10, 105],
+                           line_shape="spline",
+                           category_orders=_CATEGORIES,
                            facet_col="Resolution",
                            labels=_LABEL_MAT,
                            title="Effect of sequence length on clustering accuracy at different resolutions")
@@ -540,11 +572,11 @@ def taxonomic_accuracy_plots(clustering_df: pd.DataFrame, output_dir: str) -> No
 
     refpkg_acc_df = clustering_df.groupby(["RefPkg", "Clustering", "Length", "Resolution"]).mean().reset_index()
     box_plt = px.box(refpkg_acc_df,
-                        x="Clustering", y="Accuracy", color="Clustering",
-                        color_discrete_sequence=palette,
-                        category_orders=_CATEGORIES,
-                        labels=_LABEL_MAT,
-                        title="Comparing cluster accuracy between reference-guided and de novo methods")
+                     x="Clustering", y="Accuracy", color="Clustering",
+                     color_discrete_sequence=palette,
+                     category_orders=_CATEGORIES,
+                     labels=_LABEL_MAT,
+                     title="Comparing cluster accuracy between reference-guided and de novo methods")
     for trace in box_plt['data']:
         trace['showlegend'] = False
     traces = []
@@ -560,7 +592,7 @@ def taxonomic_accuracy_plots(clustering_df: pd.DataFrame, output_dir: str) -> No
                         'y': y,
                         'name': ref_pkg,
                         'marker': {'color': _REFPKG_PALETTE_MAP[ref_pkg],
-                                   'size': 10,
+                                   'size': 4,
                                    'line': dict(width=1, color='DarkSlateGrey')
                                    }})
         trace.update({'type': 'box',
@@ -574,17 +606,16 @@ def taxonomic_accuracy_plots(clustering_df: pd.DataFrame, output_dir: str) -> No
         traces.append(trace)
     box_plt = go.Figure(({"data": tuple(list(box_plt["data"]) + traces),
                           "layout": box_plt["layout"]}))
-
     box_plt.update_layout(legend=dict(title="Reference Package"))
-    box_plt.show()
+    # box_plt.show()
 
-    acc_line_plt.write_image(os.path.join(output_dir, "accuracy_lines.png"), engine="kaleido", scale=4.0)
-    acc_line_plt.update_layout(title="").write_image(os.path.join(output_dir, "accuracy_lines.png"),
+    acc_line_plt.write_image(os.path.join(output_dir, line_fig_name + ".png"), engine="kaleido", scale=4.0)
+    acc_line_plt.update_layout(title="").write_image(os.path.join(output_dir, line_fig_name + ".pdf"),
                                                      engine="kaleido", scale=4.0)
 
-    box_plt.write_image(os.path.join(output_dir, "accuracy_violin.png"), engine="kaleido", scale=4.0)
-    box_plt.update_layout(title="").write_image(os.path.join(output_dir, "accuracy_violin.pdf"),
-                                                   engine="kaleido", scale=4.0)
+    box_plt.write_image(os.path.join(output_dir, box_fig_name + ".png"), engine="kaleido", scale=4.0)
+    box_plt.update_layout(title="").write_image(os.path.join(output_dir, box_fig_name + ".pdf"),
+                                                engine="kaleido", scale=4.0)
     return
 
 
@@ -712,5 +743,5 @@ if __name__ == "__main__":
     if len(sys.argv) == 2:
         test = sys.argv[1]
     else:
-        test = 10
+        test = 0
     evaluate_clusters(root_dir, test)
