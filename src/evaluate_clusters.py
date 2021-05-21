@@ -2,6 +2,7 @@
 
 import glob
 import os
+import sys
 import re
 from collections import Counter
 
@@ -22,6 +23,13 @@ _LABEL_MAT = {"Length": "Protein length percentage",
               "RefPkg": "Reference package",
               "Resolution": "Cluster resolution",
               "Clustering": "Clustering method"}
+_RANKS = ['root', 'domain', 'phylum', 'class', 'order', 'family', 'genus', 'species']
+_CATEGORIES = {"Clustering": ["de_novo-aln", "de_novo-psc", "ref_guided"],
+               "RefPkg": ["RecA", "RpoB", "PF01655",
+                          "NifH", "SoxY", "McrA"],
+               "Rank": _RANKS}
+_RANK_PAL = palettes.linear_palette(px.colors.diverging.PuOr, len(_RANKS))
+_RANK_PALETTE_MAP = {_RANKS[i]: _RANK_PAL[i] for i in range(0, len(_RANKS))}
 
 
 class ClusterExperiment:
@@ -377,7 +385,7 @@ def prepare_relationships_dataframe(cluster_experiments: list) -> pd.DataFrame:
     pqueries_accounted = set()
     rank_depths = None
     data_dict = {"RefPkg": [],
-                 "Related": [],
+                 "Rank": [],
                  "Count": []}
 
     for phylotu_exp in cluster_experiments:  # type: ClusterExperiment
@@ -417,23 +425,19 @@ def prepare_relationships_dataframe(cluster_experiments: list) -> pd.DataFrame:
 
         for rank in counts:
             data_dict["RefPkg"].append(ref_pkg)
-            data_dict["Related"].append(rank)
+            data_dict["Rank"].append(rank)
             data_dict["Count"].append(counts[rank])
     p_bar.close()
     return pd.DataFrame(data_dict)
 
 
 def taxonomic_relationships_plot(hierarchy_df: pd.DataFrame, output_dir: str) -> None:
-    ranks = ['root', 'domain', 'phylum', 'class', 'order', 'family', 'genus', 'species']
-    palette = palettes.linear_palette(px.colors.diverging.PuOr, len(ranks))
-    palette_map = {ranks[i]: palette[i] for i in range(0, len(ranks))}
-
     fig = px.bar(hierarchy_df,
                  x="RefPkg", y="Count",
-                 color="Related",
+                 color="Rank",
                  barmode="group",
-                 color_discrete_map=palette_map,
-                 category_orders={"Related": ranks},
+                 color_discrete_map=_RANK_PALETTE_MAP,
+                 category_orders=_CATEGORIES,
                  labels=_LABEL_MAT,
                  title="Taxonomic relationships between EggNOG query sequences")
     fig.update_traces(marker_line_color='rgb(105,105,105)',
@@ -474,7 +478,8 @@ def prepare_evodist_accuracy_dataframe(cluster_experiments: list) -> pd.DataFram
                 data_dict["Distal"].append(pplace.distal_length)
         p_bar.update()
     p_bar.close()
-    return pd.DataFrame(data_dict)
+    evo_df = pd.DataFrame(data_dict)
+    return evo_df.groupby(["Clustering", "RefPkg", "Query", "Proper"]).mean(numeric_only=True).reset_index()
 
 
 def sequence_cohesion_plots(frag_df: pd.DataFrame, output_dir: str) -> None:
@@ -492,6 +497,7 @@ def sequence_cohesion_plots(frag_df: pd.DataFrame, output_dir: str) -> None:
                      x="RefPkg", y="Completeness",
                      barmode="group", color="Clustering",
                      color_discrete_sequence=palette,
+                     category_orders=_CATEGORIES,
                      labels=_LABEL_MAT,
                      title="Mean cluster completeness across the different reference packages")
     # bar_plt.show()
@@ -546,9 +552,6 @@ def taxonomic_accuracy_plots(clustering_df: pd.DataFrame, output_dir: str) -> No
 
 
 def taxonomic_summary_plots(taxa_df: pd.DataFrame, output_dir: str) -> None:
-    ranks = ['root', 'domain', 'phylum', 'class', 'order', 'family', 'genus', 'species']
-    palette = palettes.linear_palette(px.colors.diverging.PuOr, len(ranks))
-    palette_map = {ranks[i]: palette[i] for i in range(0, len(ranks))}
     taxa_df.index = pd.MultiIndex.from_frame(taxa_df, names=["refpkg", "taxon", "related", "rank"])
     count_df = pd.merge(left=taxa_df.count(level="refpkg").get("Related").reset_index(name="sum"),
                         right=taxa_df.groupby(["RefPkg", "Rank"]).count().get("Related").reset_index(name="count"),
@@ -558,8 +561,8 @@ def taxonomic_summary_plots(taxa_df: pd.DataFrame, output_dir: str) -> None:
     stacked_ranks_plt = px.bar(count_df,
                                x="RefPkg", y="Proportion",
                                color="Rank",
-                               color_discrete_map=palette_map,
-                               category_orders={"Rank": ranks},
+                               color_discrete_map=_RANK_PALETTE_MAP,
+                               category_orders=_CATEGORIES,
                                labels=_LABEL_MAT,
                                title="Taxonomic relationships between reference package and query sequences")
     stacked_ranks_plt.update_traces(marker_line_color='rgb(105,105,105)',
@@ -577,9 +580,7 @@ def evolutionary_summary_plots(evo_df: pd.DataFrame, output_dir: str) -> None:
                         facet_col="Proper",
                         facet_row="Clustering",
                         color_discrete_sequence=palette,
-                        category_orders={"Clustering": ["de_novo-aln", "de_novo-psc", "ref_guided"],
-                                         "RefPkg": ["RecA", "RpoB", "PF01655",
-                                                    "NifH", "SoxY", "McrA"]},
+                        category_orders=_CATEGORIES,
                         labels=_LABEL_MAT,
                         render_mode="svg",
                         title="Distribution evolutionary distances between query and reference sequences")
@@ -614,18 +615,20 @@ def evolutionary_summary_plots(evo_df: pd.DataFrame, output_dir: str) -> None:
     return
 
 
-def evaluate_clusters(root_dir):
+def evaluate_clusters(project_path: str, n_examples=0):
     cluster_experiments = []
     refpkg_map = {}
-    data_dir = os.path.join(root_dir, "clustering_experiments") + os.sep
+    data_dir = os.path.join(project_path, "clustering_experiments") + os.sep
     refpkg_dir = os.path.join(data_dir, _REFPKG_DIR)
-    fig_dir = os.path.join(root_dir, "manuscript", "figures") + os.sep
+    fig_dir = os.path.join(project_path, "manuscript", "figures") + os.sep
     # Process the PhylOTU outputs
     dirs = glob.glob(data_dir + "length_*/phylotu_outputs/*")
     p_bar = tqdm(total=len(dirs),
                  ncols=100,
                  desc="Loading phylotu outputs")
     for phylotu_dir in dirs:
+        if n_examples and p_bar.n >= n_examples:
+            break
         phylotu_exp = ClusterExperiment(directory=phylotu_dir)
         if not phylotu_exp.test_files():
             p_bar.update()
@@ -668,4 +671,10 @@ def evaluate_clusters(root_dir):
 
 
 if __name__ == "__main__":
-    evaluate_clusters("/media/connor/Rufus/Gene_Centric_Guide/")
+    root_dir = "/media/connor/Rufus/Gene_Centric_Guide/"
+    if len(sys.argv) == 2:
+        test = sys.argv[1]
+    else:
+        test = 0
+    evaluate_clusters(root_dir, test)
+
