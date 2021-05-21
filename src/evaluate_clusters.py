@@ -24,12 +24,14 @@ _LABEL_MAT = {"Length": "Protein length percentage",
               "Resolution": "Cluster resolution",
               "Clustering": "Clustering method"}
 _RANKS = ['root', 'domain', 'phylum', 'class', 'order', 'family', 'genus', 'species']
+_REFPKGS = ["RecA", "RpoB", "PF01655", "NifH", "SoxY", "McrA"]
 _CATEGORIES = {"Clustering": ["de_novo-aln", "de_novo-psc", "ref_guided"],
-               "RefPkg": ["RecA", "RpoB", "PF01655",
-                          "NifH", "SoxY", "McrA"],
+               "RefPkg": _REFPKGS,
                "Rank": _RANKS}
 _RANK_PAL = palettes.linear_palette(px.colors.diverging.PuOr, len(_RANKS))
 _RANK_PALETTE_MAP = {_RANKS[i]: _RANK_PAL[i] for i in range(0, len(_RANKS))}
+_REFPKG_PAL = px.colors.qualitative.Safe
+_REFPKG_PALETTE_MAP = {_REFPKGS[i]: _REFPKG_PAL[i] for i in range(0, len(_REFPKGS))}
 
 
 class ClusterExperiment:
@@ -293,7 +295,7 @@ def prepare_clustering_cohesion_dataframe(cluster_experiments: list) -> pd.DataF
     cohesion = []
     p_bar = tqdm(total=len(cluster_experiments), ncols=100, desc="Preparing cluster completeness dataframe")
     for phylotu_exp in sorted(cluster_experiments, key=lambda x: int(x.seq_length)):  # type: ClusterExperiment
-        hmm_perc = float(100*int(phylotu_exp.seq_length)/phylotu_exp.ref_pkg.hmm_length())
+        hmm_perc = float(100 * int(phylotu_exp.seq_length) / phylotu_exp.ref_pkg.hmm_length())
         for seq_name in phylotu_exp.cluster_assignments:
             cohesion.append(phylotu_exp.report_query_completeness(phylotu_exp.cluster_assignments[seq_name]))
             cluster_modes.append(phylotu_exp.cluster_mode)
@@ -323,7 +325,7 @@ def prepare_clustering_accuracy_dataframe(cluster_experiments: list) -> pd.DataF
             re_map[phylotu_exp.cluster_resolution] = {}
         taxon_cluster_ids = phylotu_exp.taxonomically_resolve_clusters()
         re_map[phylotu_exp.cluster_resolution].update(phylotu_exp.renamed_taxa)
-        hmm_perc = float(100*int(phylotu_exp.seq_length)/phylotu_exp.ref_pkg.hmm_length())
+        hmm_perc = float(100 * int(phylotu_exp.seq_length) / phylotu_exp.ref_pkg.hmm_length())
         for taxon in taxon_cluster_ids:  # type: str
             refpkgs.append(phylotu_exp.pkg_name)
             lengths.append(hmm_perc)
@@ -464,10 +466,10 @@ def prepare_evodist_accuracy_dataframe(cluster_experiments: list) -> pd.DataFram
             repr_taxon = phylotu_exp.match_query_to_taxon_cluster(query_name)
             if not repr_taxon:
                 continue
-            data_dict["RefPkg"] += [phylotu_exp.pkg_name]*len(fragments)
-            data_dict["Clustering"] += [phylotu_exp.cluster_mode]*len(fragments)
-            data_dict["Length"] += [phylotu_exp.seq_length]*len(fragments)
-            data_dict["Query"] += [query_name]*len(fragments)
+            data_dict["RefPkg"] += [phylotu_exp.pkg_name] * len(fragments)
+            data_dict["Clustering"] += [phylotu_exp.cluster_mode] * len(fragments)
+            data_dict["Length"] += [phylotu_exp.seq_length] * len(fragments)
+            data_dict["Query"] += [query_name] * len(fragments)
             for potu in fragments:
                 if potu in true_clusters[repr_taxon]:
                     data_dict["Proper"].append(True)
@@ -536,18 +538,53 @@ def taxonomic_accuracy_plots(clustering_df: pd.DataFrame, output_dir: str) -> No
     acc_line_plt.for_each_annotation(lambda a: a.update(text=a.text.split("=")[-1]))
     # acc_line_plt.show()
 
-    violin_plt = px.violin(clustering_df.groupby(["RefPkg", "Clustering", "Length", "Resolution"]).mean().reset_index(),
-                           x="Clustering", y="Accuracy", color="Clustering",
-                           color_discrete_sequence=palette,
-                           box=True, points="all", range_y=[0, 1.01],
-                           labels=_LABEL_MAT,
-                           title="Comparing cluster accuracy between reference-guided and de novo methods")
-    violin_plt.update_layout(showlegend=False)
-    # violin_plt.show()
+    refpkg_acc_df = clustering_df.groupby(["RefPkg", "Clustering", "Length", "Resolution"]).mean().reset_index()
+    box_plt = px.box(refpkg_acc_df,
+                        x="Clustering", y="Accuracy", color="Clustering",
+                        color_discrete_sequence=palette,
+                        category_orders=_CATEGORIES,
+                        labels=_LABEL_MAT,
+                        title="Comparing cluster accuracy between reference-guided and de novo methods")
+    for trace in box_plt['data']:
+        trace['showlegend'] = False
+    traces = []
+    for ref_pkg in _REFPKGS:
+        rp_df = refpkg_acc_df[refpkg_acc_df["RefPkg"] == ref_pkg]
+        x = []
+        y = []
+        for grp in set(rp_df["Clustering"]):
+            x += list(rp_df[rp_df["Clustering"] == grp]["Clustering"])
+            y += list(rp_df[rp_df["Clustering"] == grp]["Accuracy"])
+
+        trace = go.Box({'x': x,
+                        'y': y,
+                        'name': ref_pkg,
+                        'marker': {'color': _REFPKG_PALETTE_MAP[ref_pkg],
+                                   'size': 10,
+                                   'line': dict(width=1, color='DarkSlateGrey')
+                                   }})
+        trace.update({'type': 'box',
+                      'boxpoints': 'all',
+                      'fillcolor': 'rgba(255,255,255,0)',
+                      'hoveron': 'points',
+                      'hovertemplate': 'Clustering=%{x}<br>Accuracy=%{y}<extra></extra>',
+                      'line': {'color': 'rgba(255,255,255,0)'},
+                      'pointpos': -2,
+                      'showlegend': True})
+        traces.append(trace)
+    box_plt = go.Figure(({"data": tuple(list(box_plt["data"]) + traces),
+                          "layout": box_plt["layout"]}))
+
+    box_plt.update_layout(legend=dict(title="Reference Package"))
+    box_plt.show()
 
     acc_line_plt.write_image(os.path.join(output_dir, "accuracy_lines.png"), engine="kaleido", scale=4.0)
-    # acc_line_plt.write_image(os.path.join(output_dir, "accuracy_lines.svg"), engine="kaleido", scale=4.0)
-    violin_plt.write_image(os.path.join(output_dir, "accuracy_violin.png"), engine="kaleido", scale=4.0)
+    acc_line_plt.update_layout(title="").write_image(os.path.join(output_dir, "accuracy_lines.png"),
+                                                     engine="kaleido", scale=4.0)
+
+    box_plt.write_image(os.path.join(output_dir, "accuracy_violin.png"), engine="kaleido", scale=4.0)
+    box_plt.update_layout(title="").write_image(os.path.join(output_dir, "accuracy_violin.pdf"),
+                                                   engine="kaleido", scale=4.0)
     return
 
 
@@ -556,7 +593,7 @@ def taxonomic_summary_plots(taxa_df: pd.DataFrame, output_dir: str) -> None:
     count_df = pd.merge(left=taxa_df.count(level="refpkg").get("Related").reset_index(name="sum"),
                         right=taxa_df.groupby(["RefPkg", "Rank"]).count().get("Related").reset_index(name="count"),
                         how="inner", left_on="refpkg", right_on="RefPkg")
-    count_df["Proportion"] = count_df["count"]/count_df["sum"]
+    count_df["Proportion"] = count_df["count"] / count_df["sum"]
 
     stacked_ranks_plt = px.bar(count_df,
                                x="RefPkg", y="Proportion",
@@ -573,20 +610,19 @@ def taxonomic_summary_plots(taxa_df: pd.DataFrame, output_dir: str) -> None:
 
 
 def evolutionary_summary_plots(evo_df: pd.DataFrame, output_dir: str) -> None:
-    palette = px.colors.qualitative.Safe
     ps_plt = px.scatter(evo_df,
                         x="Pendant", y="Distal",
                         color="RefPkg",
                         facet_col="Proper",
                         facet_row="Clustering",
-                        color_discrete_sequence=palette,
+                        color_discrete_map=_REFPKG_PALETTE_MAP,
                         category_orders=_CATEGORIES,
                         labels=_LABEL_MAT,
                         render_mode="svg",
                         title="Distribution evolutionary distances between query and reference sequences")
     ps_plt.update_traces(marker=dict(size=4,
-                         line=dict(width=0.5,
-                                   color='DarkSlateGrey')),
+                                     line=dict(width=0.5,
+                                               color='DarkSlateGrey')),
                          selector=dict(mode='markers'))
 
     # Remove the redundant y-axis labels
@@ -655,6 +691,9 @@ def evaluate_clusters(project_path: str, n_examples=0):
     map_queries_to_taxa(cluster_experiments, acc_taxon_map)
     filter_incomplete_lineages(cluster_experiments)
 
+    # Percentage of sequences that were clustered together correctly at each length and rank
+    taxonomic_accuracy_plots(prepare_clustering_accuracy_dataframe(cluster_experiments), fig_dir)
+
     taxonomic_relationships_plot(prepare_relationships_dataframe(cluster_experiments), fig_dir)
 
     # Taxonomic summary plots
@@ -665,8 +704,6 @@ def evaluate_clusters(project_path: str, n_examples=0):
     # Cohesiveness of clusters for each sliced sequence at each length
     sequence_cohesion_plots(prepare_clustering_cohesion_dataframe(cluster_experiments), fig_dir)
 
-    # Percentage of sequences that were clustered together correctly at each length and rank
-    taxonomic_accuracy_plots(prepare_clustering_accuracy_dataframe(cluster_experiments), fig_dir)
     return
 
 
@@ -675,6 +712,5 @@ if __name__ == "__main__":
     if len(sys.argv) == 2:
         test = sys.argv[1]
     else:
-        test = 0
+        test = 10
     evaluate_clusters(root_dir, test)
-
