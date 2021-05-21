@@ -435,6 +435,13 @@ def prepare_relationships_dataframe(cluster_experiments: list) -> pd.DataFrame:
     return pd.DataFrame(data_dict)
 
 
+def write_images_from_dict(fig_path_map: dict, fig_scale=4.0) -> None:
+    for prefix, fig in fig_path_map.items():
+        fig.write_image(prefix+".png", engine="kaleido", scale=fig_scale)
+        fig.update_layout(title="").write_image(prefix+".pdf", engine="kaleido", scale=fig_scale)
+    return
+
+
 def taxonomic_relationships_plot(hierarchy_df: pd.DataFrame, output_dir: str) -> None:
     fig = px.bar(hierarchy_df,
                  x="RefPkg", y="Count",
@@ -447,7 +454,7 @@ def taxonomic_relationships_plot(hierarchy_df: pd.DataFrame, output_dir: str) ->
     fig.update_traces(marker_line_color='rgb(105,105,105)',
                       marker_line_width=1.5)
 
-    fig.write_image(os.path.join(output_dir, "relationship_bars.png"), engine="kaleido", scale=4.0)
+    write_images_from_dict({os.path.join(output_dir, "relationship_bars"): fig})
     return
 
 
@@ -488,6 +495,10 @@ def prepare_evodist_accuracy_dataframe(cluster_experiments: list) -> pd.DataFram
 
 def sequence_cohesion_plots(frag_df: pd.DataFrame, output_dir: str) -> None:
     palette = px.colors.qualitative.T10
+    line_path = os.path.join(output_dir, "completeness_line")
+    bar_path = os.path.join(output_dir, "completeness_bar")
+    violin_path = os.path.join(output_dir, "completeness_violin")
+
     line_plt = px.line(frag_df.groupby(["Clustering", "Length"]).mean().reset_index(),
                        x="Length", y="Completeness",
                        color="Clustering", line_group="Clustering",
@@ -515,9 +526,7 @@ def sequence_cohesion_plots(frag_df: pd.DataFrame, output_dir: str) -> None:
     violin_plt.update_layout(showlegend=False)
     # violin_plt.show()
 
-    line_plt.write_image(os.path.join(output_dir, "completeness_line.png"), engine="kaleido", scale=4.0)
-    bar_plt.write_image(os.path.join(output_dir, "completeness_bar.png"), engine="kaleido", scale=4.0)
-    violin_plt.write_image(os.path.join(output_dir, "completeness_violin.png"), engine="kaleido", scale=4.0)
+    write_images_from_dict({line_path: line_plt, bar_path: bar_plt, violin_path: violin_plt})
 
     return
 
@@ -544,15 +553,11 @@ def smooth_sav_golay(df: pd.DataFrame, group_vars: list, sort_var: str, num_var:
     return ret_df
 
 
-def taxonomic_accuracy_plots(clustering_df: pd.DataFrame, output_dir: str) -> None:
-    palette = px.colors.qualitative.T10
-    box_fig_name = "accuracy_boxes"
-    line_fig_name = "accuracy_lines"
-
+def acc_line(clustering_df: pd.DataFrame, palette) -> go.Figure:
     mean_clust_df = smooth_sav_golay(clustering_df.groupby(["Resolution", "Length", "Clustering"]).mean().reset_index(),
                                      group_vars=["Resolution", "Clustering"],
                                      num_var="Accuracy",
-                                     sort_var="Length", w=5, p=3)
+                                     sort_var="Length", w=25, p=3)
     acc_line_plt = px.line(mean_clust_df,
                            x="Length", y="Spline", color="Clustering",
                            color_discrete_sequence=palette, line_group="Clustering",
@@ -569,19 +574,13 @@ def taxonomic_accuracy_plots(clustering_df: pd.DataFrame, output_dir: str) -> No
                               title_standoff=10)
     acc_line_plt.for_each_annotation(lambda a: a.update(text=a.text.split("=")[-1]))
     # acc_line_plt.show()
+    return acc_line_plt
 
-    refpkg_acc_df = clustering_df.groupby(["RefPkg", "Clustering", "Length", "Resolution"]).mean().reset_index()
-    box_plt = px.box(refpkg_acc_df,
-                     x="Clustering", y="Accuracy", color="Clustering",
-                     color_discrete_sequence=palette,
-                     category_orders=_CATEGORIES,
-                     labels=_LABEL_MAT,
-                     title="Comparing cluster accuracy between reference-guided and de novo methods")
-    for trace in box_plt['data']:
-        trace['showlegend'] = False
+
+def refpkg_traces_for_plot(df: pd.DataFrame) -> list:
     traces = []
     for ref_pkg in _REFPKGS:
-        rp_df = refpkg_acc_df[refpkg_acc_df["RefPkg"] == ref_pkg]
+        rp_df = df[df["RefPkg"] == ref_pkg]
         x = []
         y = []
         for grp in set(rp_df["Clustering"]):
@@ -604,22 +603,42 @@ def taxonomic_accuracy_plots(clustering_df: pd.DataFrame, output_dir: str) -> No
                       'pointpos': -2,
                       'showlegend': True})
         traces.append(trace)
+    return traces
+
+
+def acc_box(clustering_df: pd.DataFrame, palette) -> go.Figure:
+    refpkg_acc_df = clustering_df.groupby(["RefPkg", "Clustering", "Length", "Resolution"]).mean().reset_index()
+    box_plt = px.box(refpkg_acc_df,
+                     x="Clustering", y="Accuracy", color="Clustering",
+                     color_discrete_sequence=palette,
+                     category_orders=_CATEGORIES,
+                     labels=_LABEL_MAT,
+                     title="Comparing cluster accuracy between reference-guided and de novo methods")
+    for trace in box_plt['data']:
+        trace['showlegend'] = False
+    traces = refpkg_traces_for_plot(refpkg_acc_df)
     box_plt = go.Figure(({"data": tuple(list(box_plt["data"]) + traces),
                           "layout": box_plt["layout"]}))
     box_plt.update_layout(legend=dict(title="Reference Package"))
     # box_plt.show()
+    return box_plt
 
-    acc_line_plt.write_image(os.path.join(output_dir, line_fig_name + ".png"), engine="kaleido", scale=4.0)
-    acc_line_plt.update_layout(title="").write_image(os.path.join(output_dir, line_fig_name + ".pdf"),
-                                                     engine="kaleido", scale=4.0)
 
-    box_plt.write_image(os.path.join(output_dir, box_fig_name + ".png"), engine="kaleido", scale=4.0)
-    box_plt.update_layout(title="").write_image(os.path.join(output_dir, box_fig_name + ".pdf"),
-                                                engine="kaleido", scale=4.0)
+def taxonomic_accuracy_plots(clustering_df: pd.DataFrame, output_dir: str) -> None:
+    palette = px.colors.qualitative.T10
+    box_path = os.path.join(output_dir, "accuracy_boxes")
+    line_path = os.path.join(output_dir, "accuracy_lines")
+
+    line_plt = acc_line(clustering_df, palette)
+
+    box_plt = acc_box(clustering_df, palette)
+
+    write_images_from_dict({line_path: line_plt, box_path: box_plt})
     return
 
 
 def taxonomic_summary_plots(taxa_df: pd.DataFrame, output_dir: str) -> None:
+    plt_path = os.path.join(output_dir, "taxa_stack")
     taxa_df.index = pd.MultiIndex.from_frame(taxa_df, names=["refpkg", "taxon", "related", "rank"])
     count_df = pd.merge(left=taxa_df.count(level="refpkg").get("Related").reset_index(name="sum"),
                         right=taxa_df.groupby(["RefPkg", "Rank"]).count().get("Related").reset_index(name="count"),
@@ -636,11 +655,12 @@ def taxonomic_summary_plots(taxa_df: pd.DataFrame, output_dir: str) -> None:
     stacked_ranks_plt.update_traces(marker_line_color='rgb(105,105,105)',
                                     marker_line_width=1)
     # stacked_ranks_plt.show()
-    stacked_ranks_plt.write_image(os.path.join(output_dir, "taxa_stack.png"), engine="kaleido", scale=4.0)
+    write_images_from_dict({plt_path: stacked_ranks_plt})
     return
 
 
 def evolutionary_summary_plots(evo_df: pd.DataFrame, output_dir: str) -> None:
+    plt_path = os.path.join(output_dir, "evo_dist_scatter")
     ps_plt = px.scatter(evo_df,
                         x="Pendant", y="Distal",
                         color="RefPkg",
@@ -678,7 +698,7 @@ def evolutionary_summary_plots(evo_df: pd.DataFrame, output_dir: str) -> None:
         x=0.5
     ))
 
-    ps_plt.write_image(os.path.join(output_dir, "evo_dist_scatter.png"), engine="kaleido", scale=4.0)
+    write_images_from_dict({plt_path: ps_plt})
     return
 
 

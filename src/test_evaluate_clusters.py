@@ -36,8 +36,23 @@ class Tester(unittest.TestCase):
         self.assertEqual(1.0, accuracy)
         return
 
-    def test_cluster_accuracy(self):
+    def test_acc_line(self):
+        import pandas as pd
+        from plotly import express as px
+        from plotly import graph_objs as go
+        mock_df = pd.read_csv("acc_pd_df.csv")
+        acc_plt = ec.acc_line(mock_df, palette=px.colors.qualitative.T10)
+        self.assertIsInstance(acc_plt, go.Figure)
+        return
 
+    def test_smooth_sav_golay(self):
+        from plotly import express as px
+        df = px.data.iris()
+        ret_df = ec.smooth_sav_golay(df,
+                                     group_vars=["species", "species_id"],
+                                     num_var="sepal_width",
+                                     sort_var="sepal_length")
+        self.assertEqual(150, len(ret_df))
         return
 
 
