@@ -31,7 +31,8 @@ _RANKS = ['root', 'domain', 'phylum', 'class', 'order', 'family', 'genus', 'spec
 _REFPKGS = ["RecA", "RpoB", "PF01655", "NifH", "SoxY", "McrA"]
 _CATEGORIES = {"Clustering": ["de_novo-aln", "de_novo-psc", "ref_guided"],
                "RefPkg": _REFPKGS,
-               "Rank": _RANKS}
+               "Rank": _RANKS,
+               "Resolution": _RANKS}
 _RANK_PAL = palettes.linear_palette(px.colors.diverging.PuOr, len(_RANKS))
 _RANK_PALETTE_MAP = {_RANKS[i]: _RANK_PAL[i] for i in range(0, len(_RANKS))}
 _REFPKG_PAL = px.colors.qualitative.Safe
@@ -454,7 +455,7 @@ def taxonomic_relationships_plot(hierarchy_df: pd.DataFrame, output_dir: str) ->
                  labels=_LABEL_MAT,
                  title="Taxonomic relationships between EggNOG query sequences")
     fig.update_traces(marker_line_color='rgb(105,105,105)',
-                      marker_line_width=1.5)
+                      marker_line_width=1)
 
     write_images_from_dict({os.path.join(output_dir, "relationship_bars"): fig})
     return
@@ -506,7 +507,7 @@ def sequence_cohesion_plots(frag_df: pd.DataFrame, output_dir: str) -> None:
                        color="Clustering", line_group="Clustering",
                        color_discrete_sequence=palette,
                        labels=_LABEL_MAT,
-                       title="Cluster completeness as a function of query sequence length")
+                       title="Split-sequence cluster completeness as a function of query sequence length")
     line_plt.update_traces(line=dict(width=4))
     # line_plt.show()
 
@@ -577,6 +578,15 @@ def acc_summary_stats(accuracy_df: pd.DataFrame, kwargs: dict) -> pd.DataFrame:
     for keyword, val in kwargs.items():
         summary_dat[keyword] = [val]*rows
     return pd.DataFrame(summary_dat)
+
+
+def completeness_summary_stats(comp_df: pd.DataFrame) -> None:
+    comp_df.index = pd.MultiIndex.from_frame(comp_df,
+                                             names=["refpkg", "completeness", "clustering", "resolution", "length"])
+    print(comp_df.groupby(by=["Resolution", "Clustering"],
+                          observed=True)["Completeness"].mean().reset_index())
+
+    return
 
 
 def acc_line(clustering_df: pd.DataFrame, palette, x_lims=None) -> go.Figure:
@@ -666,7 +676,7 @@ def acc_box(clustering_df: pd.DataFrame, palette) -> go.Figure:
 
 def taxonomic_accuracy_plots(clustering_df: pd.DataFrame, output_dir: str) -> None:
     palette = px.colors.qualitative.T10
-    x_range = [20, 100]
+    x_range = [20, 101]
     box_path = os.path.join(output_dir, "accuracy_boxes")
     line_path = os.path.join(output_dir, "accuracy_lines")
     bar_path = os.path.join(output_dir, "length_bars")
@@ -794,6 +804,11 @@ def evaluate_clusters(project_path: str, n_examples=0, **kwargs):
     # Percentage of sequences that were clustered together correctly at each length and rank
     acc_df = prepare_clustering_accuracy_dataframe(cluster_experiments)
     summary_df = acc_summary_stats(acc_df, kwargs=kwargs)
+
+    # Cohesiveness of clusters for each sliced sequence at each length
+    comp_df = prepare_clustering_cohesion_dataframe(cluster_experiments)
+    completeness_summary_stats(comp_df)
+
     summary_df.to_csv(os.path.join(tab_dir,
                                    "acc_summary_" + time.strftime("%d-%m-%y_%H%M%S", time.localtime()) + ".csv"),
                       index=False,
@@ -802,13 +817,11 @@ def evaluate_clusters(project_path: str, n_examples=0, **kwargs):
 
     taxonomic_relationships_plot(prepare_relationships_dataframe(cluster_experiments), fig_dir)
 
-    # Taxonomic summary plots
     taxonomic_summary_plots(prepare_taxonomic_summary_dataframe(cluster_experiments), fig_dir)
 
     evolutionary_summary_plots(prepare_evodist_accuracy_dataframe(cluster_experiments), fig_dir)
 
-    # Cohesiveness of clusters for each sliced sequence at each length
-    sequence_cohesion_plots(prepare_clustering_cohesion_dataframe(cluster_experiments), fig_dir)
+    sequence_cohesion_plots(comp_df, fig_dir)
 
     return
 
