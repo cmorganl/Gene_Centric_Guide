@@ -1,7 +1,7 @@
 #!/bin/bash
 
 usage="USAGE:\n
-                $0 -g [genomes.csv] -r [path/to/RefPkgs/] [-t num_threads=8] [-o overwrite='y'|'n']"
+                $0 -g [e5.refpkg_proteome.faa] -r [path/to/RefPkgs/] [-t num_threads=8] [-o overwrite='y'|'n']"
 
 if [ $# -eq 0 ]; then
 	echo "ERROR: No arguments provided."
@@ -19,7 +19,7 @@ fi
 # Set arguments
 while getopts ":g:r:t:o:" opt; do
   case $opt in
-  g) genomes_list="$OPTARG"
+  g) proteins_fa="$OPTARG"
     ;;
   r) refpkgs_repo_dir="$OPTARG"
     ;;
@@ -38,45 +38,29 @@ if [ -z $overwrite ]; then
   overwrite="y"
 fi
 
-proteins_fa=proteome.fasta
 log_file=TreeSAPP_clustering_experiments_log.txt
 refpkg_dir=clustering_refpkgs/
 ts_assign_out=proteome_classified
 phylotu_out=phylotu_outputs/
+tmp_input=$( basename $proteins_fa | sed 's/.gz$//g' ).tmp
 
 printf "Running with the following configuration:
-        Genomes list: $genomes_list
+        Query sequence FASTA: $proteins_fa
         RefPkgs path: $refpkgs_repo_dir
         Overwrite: $overwrite
         Threads: $n_threads
         Log file: $log_file\n"
 
-if [ -f $proteins_fa ] && [ $overwrite == 'y' ]; then
-	rm $proteins_fa
-fi
 if [ ! -d $refpkg_dir ]; then
 	mkdir $refpkg_dir
 fi
 if [ ! -d $phylotu_out ]; then
 	mkdir $phylotu_out
 fi
-
-# Download genomes
-if [ ! -f $proteins_fa ]; then
-  while read line
-  do
-    taxid=$( echo "$line" | gawk -F, '{ print $2 }')
-    faa_url=$( echo "$line" | gawk -F, '{ print $4 }')
-    if [ $faa_url == "ProteinsURL" ]; then
-      continue
-    fi
-    echo "Downloading sequences for $( echo "$line" | gawk -F, '{ print $1 }')"
-    wget -O $taxid.faa.gz $faa_url 1>/dev/null 2>&1
-    gunzip -c $taxid.faa.gz | seqkit replace -p "^" -r "${taxid}." >>$proteins_fa
-    rm $taxid.faa.gz
-  done<$genomes_list
+if [ $(file --mime-type $proteins_fa | grep -c gzip ) -eq 1 ]; then
+  gunzip -c $proteins_fa >$tmp_input
 else
-  echo "Using $proteins_fa from previous run"
+  cp $proteins_fa $tmp_input
 fi
 
 echo "Copying reference packages"
@@ -85,6 +69,7 @@ cp \
 	$refpkgs_repo_dir/Nitrogen_metabolism/Fixation/NifH/seed_refpkg/final_outputs/NifH_build.pkl \
 	$refpkgs_repo_dir/Sulfur_metabolism/SoxY/seed_refpkg/final_outputs/SoxY_build.pkl \
 	$refpkgs_repo_dir/Translation/RpoB/seed_refpkg/final_outputs/RpoB_build.pkl \
+	$refpkgs_repo_dir/Translation/RecA/seed_refpkg/final_outputs/RecA_build.pkl \
 	$refpkgs_repo_dir/Translation/PF01655/seed_refpkg/final_outputs/PF01655_build.pkl \
 	$refpkg_dir
 
@@ -100,12 +85,12 @@ do
     mkdir $prefix/$phylotu_out
   fi
 
-  queries=$prefix/$proteins_fa
+  queries=$( echo $prefix/$tmp_input | sed 's/.tmp$//g' )
   overlap=$( echo $r | awk '{ print $1/2 }' )
   echo "Creating subsequences of length $r with overlap of $overlap from $proteins_fa"
-  cat $proteins_fa | \
+  cat $tmp_input | \
   seqkit sliding --greedy --step $overlap --window $r | \
-  seqkit seq  --remove-gaps --min-len 30 >$queries
+  seqkit seq  --remove-gaps --min-len $overlap >$queries
 
 	if [ ! -d $prefix/$ts_assign_out ]; then
     echo "Classifying the sequences"
@@ -166,3 +151,5 @@ do
     done
   done
 done
+
+rm $tmp_input
