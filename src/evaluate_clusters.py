@@ -4,6 +4,7 @@ import glob
 import os
 import sys
 import re
+import time
 from collections import Counter
 import itertools
 
@@ -14,7 +15,7 @@ import plotly.graph_objects as go
 import plotly.io as pio
 from bokeh import palettes
 from tqdm import tqdm
-from sklearn.metrics import homogeneity_completeness_v_measure, completeness_score
+from sklearn import metrics
 from scipy.signal import savgol_filter
 
 pio.templates.default = "plotly_white"
@@ -198,12 +199,12 @@ class ClusterExperiment:
     @staticmethod
     def report_query_completeness(cluster_assignments: list) -> float:
         true_labels = ClusterExperiment.generate_true_cluster_labels(cluster_assignments)
-        return round(completeness_score(labels_true=true_labels, labels_pred=cluster_assignments), 3)
+        return round(metrics.completeness_score(labels_true=true_labels, labels_pred=cluster_assignments), 3)
 
     @staticmethod
     def find_clustering_accuracy(taxon_cluster_ids: list) -> float:
         true_labels = ClusterExperiment.generate_true_cluster_labels(taxon_cluster_ids)
-        h, c, v = homogeneity_completeness_v_measure(labels_true=true_labels, labels_pred=taxon_cluster_ids)
+        h, c, v = metrics.homogeneity_completeness_v_measure(labels_true=true_labels, labels_pred=taxon_cluster_ids)
         return round(v, 3)
 
     def generate_entrez_queries(self) -> None:
@@ -553,6 +554,30 @@ def smooth_sav_golay(df: pd.DataFrame, group_vars: list, sort_var: str, num_var:
     return ret_df
 
 
+def acc_summary_stats(accuracy_df: pd.DataFrame, kwargs: dict) -> pd.DataFrame:
+    summary_dat = {"Mode": [],
+                   "Resolution": [],
+                   "AUC": [],
+                   "Accuracy": []}
+    rows = 0
+    n_sig = 3
+    for cluster_mode in set(accuracy_df["Clustering"]):  # type: str
+        mode_df = accuracy_df[accuracy_df["Clustering"] == cluster_mode]
+        for res in set(mode_df["Resolution"]):
+            res_df = mode_df[mode_df["Resolution"] == res]
+            res_df = res_df.groupby(["Length", "Clustering"]).mean().reset_index().sort_values(by="Length")
+            if len(res_df) <= 1:
+                continue
+            summary_dat["Mode"].append(cluster_mode)
+            summary_dat["Resolution"].append(res)
+            summary_dat["AUC"].append(round(metrics.auc(x=res_df["Length"], y=res_df["Accuracy"]), n_sig))
+            summary_dat["Accuracy"].append(round(sum(res_df["Accuracy"])/len(res_df["Accuracy"]), n_sig))
+            rows += 1
+    for keyword, val in kwargs.items():
+        summary_dat[keyword] = [val]*rows
+    return pd.DataFrame(summary_dat)
+
+
 def acc_line(clustering_df: pd.DataFrame, palette) -> go.Figure:
     mean_clust_df = smooth_sav_golay(clustering_df.groupby(["Resolution", "Length", "Clustering"]).mean().reset_index(),
                                      group_vars=["Resolution", "Clustering"],
@@ -702,12 +727,17 @@ def evolutionary_summary_plots(evo_df: pd.DataFrame, output_dir: str) -> None:
     return
 
 
-def evaluate_clusters(project_path: str, n_examples=0):
+def evaluate_clusters(project_path: str, n_examples=0, **kwargs):
     cluster_experiments = []
     refpkg_map = {}
     data_dir = os.path.join(project_path, "clustering_experiments") + os.sep
     refpkg_dir = os.path.join(data_dir, _REFPKG_DIR)
     fig_dir = os.path.join(project_path, "manuscript", "figures") + os.sep
+    tab_dir = os.path.join(project_path, "manuscript", "tables") + os.sep
+    for dir_path in [fig_dir, tab_dir]:
+        if not os.path.isdir(dir_path):
+            os.mkdir(dir_path)
+
     # Process the PhylOTU outputs
     dirs = glob.glob(data_dir + "length_*/phylotu_outputs/*")
     p_bar = tqdm(total=len(dirs),
@@ -743,7 +773,13 @@ def evaluate_clusters(project_path: str, n_examples=0):
     filter_incomplete_lineages(cluster_experiments)
 
     # Percentage of sequences that were clustered together correctly at each length and rank
-    taxonomic_accuracy_plots(prepare_clustering_accuracy_dataframe(cluster_experiments), fig_dir)
+    acc_df = prepare_clustering_accuracy_dataframe(cluster_experiments)
+    summary_df = acc_summary_stats(acc_df, kwargs=kwargs)
+    summary_df.to_csv(os.path.join(tab_dir,
+                                   "acc_summary_" + time.strftime("%d-%m-%y_%H%M%S", time.localtime()) + ".csv"),
+                      index=False,
+                      mode='w')
+    taxonomic_accuracy_plots(acc_df, fig_dir)
 
     taxonomic_relationships_plot(prepare_relationships_dataframe(cluster_experiments), fig_dir)
 
@@ -764,4 +800,4 @@ if __name__ == "__main__":
         test = sys.argv[1]
     else:
         test = 0
-    evaluate_clusters(root_dir, test)
+    evaluate_clusters(root_dir, test, confidence=0.90, dist="percentile")

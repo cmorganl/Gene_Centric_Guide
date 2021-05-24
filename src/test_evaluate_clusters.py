@@ -55,6 +55,13 @@ class Tester(unittest.TestCase):
         self.assertEqual(150, len(ret_df))
         return
 
+    def test_acc_summary_stats(self):
+        import pandas as pd
+        mock_df = pd.read_csv("acc_pd_df.csv")
+        acc_summary_df = ec.acc_summary_stats(mock_df, kwargs={})
+        self.assertEqual(9, len(acc_summary_df))
+        return
+
 
 if __name__ == '__main__':
     unittest.main()
