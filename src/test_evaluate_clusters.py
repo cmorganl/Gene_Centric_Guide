@@ -43,6 +43,16 @@ class Tester(unittest.TestCase):
         mock_df = pd.read_csv("acc_pd_df.csv")
         acc_plt = ec.acc_line(mock_df, palette=px.colors.qualitative.T10)
         self.assertIsInstance(acc_plt, go.Figure)
+        acc_plt.show()
+        return
+
+    def test_len_bars(self):
+        import pandas as pd
+        from plotly import graph_objs as go
+        mock_df = pd.read_csv("acc_pd_df.csv")
+        bar_plt = ec.len_bars(mock_df, x_lims=[40, 101])
+        self.assertIsInstance(bar_plt, go.Figure)
+        bar_plt.show()
         return
 
     def test_smooth_sav_golay(self):

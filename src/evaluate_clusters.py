@@ -25,7 +25,8 @@ _LABEL_MAT = {"Length": "Protein length percentage",
               "Accuracy": "Cluster accuracy",
               "RefPkg": "Reference package",
               "Resolution": "Cluster resolution",
-              "Clustering": "Clustering method"}
+              "Clustering": "Clustering method",
+              "Spline": "Cluster accuracy"}
 _RANKS = ['root', 'domain', 'phylum', 'class', 'order', 'family', 'genus', 'species']
 _REFPKGS = ["RecA", "RpoB", "PF01655", "NifH", "SoxY", "McrA"]
 _CATEGORIES = {"Clustering": ["de_novo-aln", "de_novo-psc", "ref_guided"],
@@ -578,7 +579,7 @@ def acc_summary_stats(accuracy_df: pd.DataFrame, kwargs: dict) -> pd.DataFrame:
     return pd.DataFrame(summary_dat)
 
 
-def acc_line(clustering_df: pd.DataFrame, palette) -> go.Figure:
+def acc_line(clustering_df: pd.DataFrame, palette, x_lims=None) -> go.Figure:
     mean_clust_df = smooth_sav_golay(clustering_df.groupby(["Resolution", "Length", "Clustering"]).mean().reset_index(),
                                      group_vars=["Resolution", "Clustering"],
                                      num_var="Accuracy",
@@ -586,7 +587,7 @@ def acc_line(clustering_df: pd.DataFrame, palette) -> go.Figure:
     acc_line_plt = px.line(mean_clust_df,
                            x="Length", y="Spline", color="Clustering",
                            color_discrete_sequence=palette, line_group="Clustering",
-                           facet_col_spacing=0.05,
+                           facet_col_spacing=0.05, range_x=x_lims,
                            line_shape="spline",
                            category_orders=_CATEGORIES,
                            facet_col="Resolution",
@@ -600,6 +601,20 @@ def acc_line(clustering_df: pd.DataFrame, palette) -> go.Figure:
     acc_line_plt.for_each_annotation(lambda a: a.update(text=a.text.split("=")[-1]))
     # acc_line_plt.show()
     return acc_line_plt
+
+
+def len_bars(clustering_df: pd.DataFrame, x_lims=None) -> go.Figure:
+    fig = px.histogram(clustering_df.groupby(["RefPkg", "Length", "Taxon"]).mean().reset_index(),
+                       x="Length", color="RefPkg", range_x=x_lims,
+                       category_orders=_CATEGORIES,
+                       labels=_LABEL_MAT,
+                       color_discrete_map=_REFPKG_PALETTE_MAP,
+                       height=400,
+                       title="Number of taxa evaluated at each percentage of a reference package's sequence length")
+    fig.update_layout(yaxis_title="No. Taxa")
+    fig.update_traces(marker_line_color='rgb(105,105,105)',
+                      marker_line_width=1)
+    return fig
 
 
 def refpkg_traces_for_plot(df: pd.DataFrame) -> list:
@@ -651,14 +666,18 @@ def acc_box(clustering_df: pd.DataFrame, palette) -> go.Figure:
 
 def taxonomic_accuracy_plots(clustering_df: pd.DataFrame, output_dir: str) -> None:
     palette = px.colors.qualitative.T10
+    x_range = [20, 100]
     box_path = os.path.join(output_dir, "accuracy_boxes")
     line_path = os.path.join(output_dir, "accuracy_lines")
+    bar_path = os.path.join(output_dir, "length_bars")
 
-    line_plt = acc_line(clustering_df, palette)
+    bar_plt = len_bars(clustering_df, x_lims=x_range)
+
+    line_plt = acc_line(clustering_df, palette, x_lims=x_range)
 
     box_plt = acc_box(clustering_df, palette)
 
-    write_images_from_dict({line_path: line_plt, box_path: box_plt})
+    write_images_from_dict({line_path: line_plt, box_path: box_plt, bar_path: bar_plt})
     return
 
 
@@ -800,4 +819,4 @@ if __name__ == "__main__":
         test = sys.argv[1]
     else:
         test = 0
-    evaluate_clusters(root_dir, test, confidence=0.90, dist="percentile")
+    evaluate_clusters(root_dir, test, confidence=0.95, dist="interval")
