@@ -26,7 +26,8 @@ _LABEL_MAT = {"Length": "Protein length percentage",
               "RefPkg": "Reference package",
               "Resolution": "Cluster resolution",
               "Clustering": "Clustering method",
-              "Spline": "Cluster accuracy"}
+              "Spline": "Cluster accuracy",
+              "WTD": "Taxonomic Distinctness"}
 _RANKS = ['root', 'domain', 'phylum', 'class', 'order', 'family', 'genus', 'species']
 _REFPKGS = ["RecA", "RpoB", "PF01655", "NifH", "SoxY", "McrA"]
 _CATEGORIES = {"Clustering": ["de_novo-aln", "de_novo-psc", "ref_guided"],
@@ -55,6 +56,7 @@ class ClusterExperiment:
         self.pkg_name = None
         self.ref_pkg = ts.refpkg.ReferencePackage()
         self.cluster_assignments = {}
+        self.cluster_members = {}
         self.phylo_place_map = {}
         self.entrez_query_dict = {}
         self.query_taxon_map = {}
@@ -221,6 +223,15 @@ class ClusterExperiment:
         for query_potus in self.cluster_assignments.values():
             potus.update(set(query_potus))
         return len(potus)
+
+    def load_cluster_members(self):
+        for query, potus in self.cluster_assignments.items():  # type: (str, list)
+            for cluster_num in set(potus):
+                try:
+                    self.cluster_members[cluster_num].add(query)
+                except KeyError:
+                    self.cluster_members[cluster_num] = set([query])
+        return
 
 
 def retrieve_lineages(cluster_experiments) -> dict:
@@ -440,8 +451,8 @@ def prepare_relationships_dataframe(cluster_experiments: list) -> pd.DataFrame:
 
 def write_images_from_dict(fig_path_map: dict, fig_scale=4.0) -> None:
     for prefix, fig in fig_path_map.items():
-        fig.write_image(prefix+".png", engine="kaleido", scale=fig_scale)
-        fig.update_layout(title="").write_image(prefix+".pdf", engine="kaleido", scale=fig_scale)
+        fig.write_image(prefix + ".png", engine="kaleido", scale=fig_scale)
+        fig.update_layout(title="").write_image(prefix + ".pdf", engine="kaleido", scale=fig_scale)
     return
 
 
@@ -459,6 +470,33 @@ def taxonomic_relationships_plot(hierarchy_df: pd.DataFrame, output_dir: str) ->
 
     write_images_from_dict({os.path.join(output_dir, "relationship_bars"): fig})
     return
+
+
+def prepare_taxonomic_distinctness_dataframe(cluster_experiments: list) -> pd.DataFrame:
+    data_dict = {"RefPkg": [],
+                 "Resolution": [],
+                 "Clustering": [],
+                 "Length": [],
+                 "Cluster": [],
+                 "WTD": []}
+    p_bar = tqdm(total=len(cluster_experiments), ncols=100, desc="Preparing taxonomic distinctness dataframe")
+    for phylotu_exp in cluster_experiments:  # type: ClusterExperiment
+        phylotu_exp.load_cluster_members()
+        phylotu_exp.ref_pkg.taxa_trie.validate_rank_prefixes()
+        hmm_perc = float(100 * int(phylotu_exp.seq_length) / phylotu_exp.ref_pkg.hmm_length())
+        for potu, members in phylotu_exp.cluster_members.items():  # type: (str, set)
+            taxa = {m: phylotu_exp.query_taxon_map[m] for m in members}
+            data_dict["RefPkg"].append(phylotu_exp.pkg_name)
+            data_dict["Resolution"].append(phylotu_exp.cluster_resolution)
+            data_dict["Clustering"].append(phylotu_exp.cluster_mode)
+            data_dict["Length"].append(hmm_perc)
+            data_dict["Cluster"].append(potu)
+            data_dict["WTD"].append(ts.lca_calculations.taxonomic_distinctness(taxa,
+                                                                               rank=phylotu_exp.cluster_resolution,
+                                                                               rank_depths=phylotu_exp.ref_pkg.taxa_trie.accepted_ranks_depths))
+        p_bar.update()
+    p_bar.close()
+    return pd.DataFrame(data_dict)
 
 
 def prepare_evodist_accuracy_dataframe(cluster_experiments: list) -> pd.DataFrame:
@@ -573,11 +611,12 @@ def acc_summary_stats(accuracy_df: pd.DataFrame, kwargs: dict) -> pd.DataFrame:
             summary_dat["Mode"].append(cluster_mode)
             summary_dat["Resolution"].append(res)
             summary_dat["AUC"].append(round(metrics.auc(x=res_df["Length"], y=res_df["Accuracy"]), n_sig))
-            summary_dat["Accuracy"].append(round(sum(res_df["Accuracy"])/len(res_df["Accuracy"]), n_sig))
+            summary_dat["Accuracy"].append(round(sum(res_df["Accuracy"]) / len(res_df["Accuracy"]), n_sig))
             rows += 1
     for keyword, val in kwargs.items():
-        summary_dat[keyword] = [val]*rows
-    return pd.DataFrame(summary_dat)
+        summary_dat[keyword] = [val] * rows
+    summary_df = pd.DataFrame(summary_dat).sort_values(by=["Resolution", "Mode"])
+    return summary_df
 
 
 def completeness_summary_stats(comp_df: pd.DataFrame) -> None:
@@ -590,11 +629,12 @@ def completeness_summary_stats(comp_df: pd.DataFrame) -> None:
 
 
 def acc_line(clustering_df: pd.DataFrame, palette, x_lims=None) -> go.Figure:
-    mean_clust_df = smooth_sav_golay(clustering_df.groupby(["Resolution", "Length", "Clustering"]).mean().reset_index(),
-                                     group_vars=["Resolution", "Clustering"],
-                                     num_var="Accuracy",
-                                     sort_var="Length", w=25, p=3)
-    acc_line_plt = px.line(mean_clust_df,
+    mean_clust_df = clustering_df.groupby(["Resolution", "Length", "Clustering"]).mean(numeric_only=True).reset_index()
+    smooth_clust_df = smooth_sav_golay(mean_clust_df,
+                                       group_vars=["Resolution", "Clustering"],
+                                       num_var="Accuracy",
+                                       sort_var="Length", w=25, p=3)
+    acc_line_plt = px.line(smooth_clust_df,
                            x="Length", y="Spline", color="Clustering",
                            color_discrete_sequence=palette, line_group="Clustering",
                            facet_col_spacing=0.05, range_x=x_lims,
@@ -641,7 +681,7 @@ def refpkg_traces_for_plot(df: pd.DataFrame) -> list:
                         'y': y,
                         'name': ref_pkg,
                         'marker': {'color': _REFPKG_PALETTE_MAP[ref_pkg],
-                                   'size': 4,
+                                   'size': 6,
                                    'line': dict(width=1, color='DarkSlateGrey')
                                    }})
         trace.update({'type': 'box',
@@ -654,6 +694,38 @@ def refpkg_traces_for_plot(df: pd.DataFrame) -> list:
                       'showlegend': True})
         traces.append(trace)
     return traces
+
+
+def taxonomic_distinctness_plot(clustering_df: pd.DataFrame, output_dir: str) -> None:
+    palette = px.colors.qualitative.T10
+    box_path = os.path.join(output_dir, "wtd_box")
+    line_path = os.path.join(output_dir, "wtd_line")
+    box_plt = px.box(
+        clustering_df.groupby(["RefPkg", "Clustering", "Resolution", "Length"]).mean(numeric_only=True).reset_index(),
+        x="Clustering", y="WTD", color="RefPkg",
+        color_discrete_map=_REFPKG_PALETTE_MAP,
+        category_orders=_CATEGORIES,
+        facet_col="Resolution",
+        labels=_LABEL_MAT,
+        title="Comparing taxonomic distinctness of clusters between reference-guided and de novo methods")
+    # box_plt.show()
+
+    species_wtd_df = clustering_df[clustering_df["Resolution"] == "species"]
+    line_plt = px.line(
+        species_wtd_df.groupby(["Clustering", "RefPkg", "Length"]).mean(numeric_only=True).reset_index(),
+        x="Length", y="WTD", color="Clustering",
+        color_discrete_sequence=palette,
+        facet_col_spacing=0.05, range_x=[30, 101],
+        line_shape="spline",
+        category_orders=_CATEGORIES,
+        facet_col="RefPkg",
+        labels=_LABEL_MAT,
+        title="Effect of sequence length on cluster taxonomic distinctness at species resolution")
+    line_plt.update_traces(line=dict(width=4))
+    line_plt.update_yaxes(autorange=True)
+    # line_plt.show()
+    write_images_from_dict({box_path: box_plt, line_path: line_plt})
+    return
 
 
 def acc_box(clustering_df: pd.DataFrame, palette) -> go.Figure:
@@ -801,6 +873,8 @@ def evaluate_clusters(project_path: str, n_examples=0, **kwargs):
     map_queries_to_taxa(cluster_experiments, acc_taxon_map)
     filter_incomplete_lineages(cluster_experiments)
 
+    taxonomic_distinctness_plot(prepare_taxonomic_distinctness_dataframe(cluster_experiments), fig_dir)
+
     # Percentage of sequences that were clustered together correctly at each length and rank
     acc_df = prepare_clustering_accuracy_dataframe(cluster_experiments)
     summary_df = acc_summary_stats(acc_df, kwargs=kwargs)
@@ -832,4 +906,4 @@ if __name__ == "__main__":
         test = sys.argv[1]
     else:
         test = 0
-    evaluate_clusters(root_dir, test, confidence=0.95, dist="interval")
+    evaluate_clusters(root_dir, test, confidence=0.99, dist="interval")
