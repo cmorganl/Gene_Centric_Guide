@@ -73,7 +73,7 @@ cp \
 	$refpkgs_repo_dir/Translation/PF01655/seed_refpkg/final_outputs/PF01655_build.pkl \
 	$refpkg_dir
 
-for r in $(seq 100 50 600)
+for r in $(seq 40 20 80) $(seq 100 50 600) $(seq 700 100 1000)
 do
 	prefix=length_$r
 	if [ -d $prefix ] && [ $overwrite == 'y' ]; then
@@ -106,7 +106,7 @@ do
   echo "Clustering the classified query sequences"
 	for f in $refpkg_dir/*pkl
 	do
-	  for rank in "species" "family" "class"
+	  for rank in "species" "genus" "family"
 	  do
 	    # Output directories
 	    potu_rg_out=$prefix/$phylotu_out/$( basename $f | sed 's/_build.pkl//g' )\_phylotus_rg_$rank
@@ -122,7 +122,9 @@ do
           --assign_output $prefix/$ts_assign_out \
           --tax_rank $rank \
           -o $potu_rg_out \
-          --mode ref_guided
+          --mode ref_guided \
+          --num_procs $n_threads \
+          --overwrite
       fi
 
       # De novo clusters by recreating the phylogeny
@@ -134,6 +136,7 @@ do
           --assign_output $prefix/$ts_assign_out \
           --tax_rank $rank \
           -o $potu_dn_psc_out \
+          --num_procs $n_threads \
           --mode de_novo --pre_cluster psc
       fi
 
@@ -146,6 +149,7 @@ do
           --assign_output $prefix/$ts_assign_out \
           --tax_rank $rank \
           -o $potu_dn_aln_out \
+          --num_procs $n_threads \
           --mode de_novo --pre_cluster align
       fi
     done
