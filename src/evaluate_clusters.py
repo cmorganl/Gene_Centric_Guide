@@ -17,6 +17,8 @@ from bokeh import palettes
 from tqdm import tqdm
 from sklearn import metrics
 from scipy.signal import savgol_filter
+from scipy.stats import f_oneway, normaltest
+import statsmodels.api as sm
 
 pio.templates.default = "plotly_white"
 _REFPKG_DIR = "clustering_refpkgs"
@@ -307,13 +309,17 @@ def filter_incomplete_lineages(cluster_experiments: list) -> None:
 
 def filter_by_seq_lengths(cluster_experiments: list, min_perc=20) -> None:
     i = 0
+    rm = 0
     while i < len(cluster_experiments):
         phylotu_exp = cluster_experiments[i]  # type: ClusterExperiment
         phylotu_exp.convert_length_to_percentage()
         if phylotu_exp.seq_length < min_perc:
             cluster_experiments.pop(i)
+            rm += 1
         else:
             i += 1
+    if rm:
+        print("Removed {} datasets where the percentage of full-length sequence was less than {}%".format(rm, min_perc))
     return
 
 
@@ -618,6 +624,7 @@ def acc_summary_stats(accuracy_df: pd.DataFrame, kwargs: dict) -> pd.DataFrame:
                    "Accuracy": []}
     rows = 0
     n_sig = 3
+    # Summarise the accuracies across the different clustering resolutions and modes
     for cluster_mode in set(accuracy_df["Clustering"]):  # type: str
         mode_df = accuracy_df[accuracy_df["Clustering"] == cluster_mode]
         for res in set(mode_df["Resolution"]):
@@ -633,6 +640,19 @@ def acc_summary_stats(accuracy_df: pd.DataFrame, kwargs: dict) -> pd.DataFrame:
     for keyword, val in kwargs.items():
         summary_dat[keyword] = [val] * rows
     summary_df = pd.DataFrame(summary_dat).sort_values(by=["Resolution", "Mode"])
+
+    # Test whether the distributions of accuracy are significantly different
+    anova_long_df = accuracy_df.groupby(["Clustering", "Length", "Resolution"]).mean().reset_index()
+    print("Normality:", normaltest(anova_long_df["Accuracy"]))
+
+    anova_df = anova_long_df.pivot(columns="Clustering", values="Accuracy")
+    mode_acc_vals = []
+    for mode in anova_df.columns:
+        mode_acc_vals.append(anova_df[[mode]].dropna())
+    print("One-way ANOVA:", f_oneway(*mode_acc_vals))
+    res = sm.stats.multicomp.pairwise_tukeyhsd(endog=anova_df.stack().reset_index()[0],
+                                               groups=anova_df.stack().reset_index()["Clustering"])
+    print(res.summary())
     return summary_df
 
 
