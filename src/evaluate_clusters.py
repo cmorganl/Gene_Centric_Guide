@@ -733,11 +733,12 @@ def refpkg_traces_for_plot(df: pd.DataFrame) -> list:
     return traces
 
 
-def taxonomic_distinctness_plot(clustering_df: pd.DataFrame, output_dir: str) -> None:
+def taxonomic_distinctness_plots(clustering_df: pd.DataFrame, output_dir: str) -> None:
     palette = px.colors.qualitative.T10
-    box_path = os.path.join(output_dir, "wtd_box")
+    rp_box_path = os.path.join(output_dir, "wtd_refpkg_box")
+    cm_box_path = os.path.join(output_dir, "wtd_method_box")
     line_path = os.path.join(output_dir, "wtd_line")
-    box_plt = px.box(
+    rp_box_plt = px.box(
         clustering_df.groupby(["RefPkg", "Clustering", "Resolution", "Length"]).mean(numeric_only=True).reset_index(),
         x="Clustering", y="WTD", color="RefPkg",
         color_discrete_map=_REFPKG_PALETTE_MAP,
@@ -745,8 +746,17 @@ def taxonomic_distinctness_plot(clustering_df: pd.DataFrame, output_dir: str) ->
         facet_col="Resolution",
         labels=_LABEL_MAT,
         title="Taxonomic distinctness is greater in reference-guided clusters than de novo")
-    box_plt.for_each_annotation(lambda a: a.update(text=a.text.split("=")[-1]))
-    # box_plt.show()
+    rp_box_plt.for_each_annotation(lambda a: a.update(text=a.text.split("=")[-1]))
+
+    cm_box_plt = px.box(
+        clustering_df.groupby(["RefPkg", "Clustering", "Resolution", "Length"]).mean(numeric_only=True).reset_index(),
+        x="Resolution", y="WTD", color="Clustering",
+        color_discrete_sequence=palette,
+        category_orders=_CATEGORIES,
+        labels=_LABEL_MAT,
+        title="Taxonomic distinctness is greater in reference-guided clusters than de novo")
+    cm_box_plt.for_each_annotation(lambda a: a.update(text=a.text.split("=")[-1]))
+    # cm_box_plt.show()
 
     species_wtd_df = clustering_df[clustering_df["Resolution"] == "species"]
     line_plt = px.line(
@@ -766,7 +776,7 @@ def taxonomic_distinctness_plot(clustering_df: pd.DataFrame, output_dir: str) ->
                           title_font=None,
                           title_standoff=10)
     # line_plt.show()
-    write_images_from_dict({box_path: box_plt, line_path: line_plt})
+    write_images_from_dict({rp_box_path: rp_box_plt, cm_box_path: cm_box_plt, line_path: line_plt})
     return
 
 
@@ -870,9 +880,11 @@ def evolutionary_summary_plots(evo_df: pd.DataFrame, output_dir: str) -> None:
     return
 
 
-def evaluate_clusters(project_path: str, n_examples=0, **kwargs):
+def evaluate_clusters(project_path: str, n_examples=0, reso_ranks=None, **kwargs):
     cluster_experiments = []
     refpkg_map = {}
+    if reso_ranks is None:
+        reso_ranks = {"family", "genus", "species"}
     data_dir = os.path.join(project_path, "clustering_experiments") + os.sep
     refpkg_dir = os.path.join(data_dir, _REFPKG_DIR)
     fig_dir = os.path.join(project_path, "manuscript", "figures") + os.sep
@@ -896,8 +908,12 @@ def evaluate_clusters(project_path: str, n_examples=0, **kwargs):
         if not phylotu_exp.load_cluster_assignments():
             p_bar.update()
             continue
-        # Load the ClusterExperiment's associated reference package
+        if phylotu_exp.cluster_resolution not in reso_ranks:
+            p_bar.update()
+            continue
+
         phylotu_exp.set_precluster_mode(append=True)
+        # Load the ClusterExperiment's associated reference package
         if phylotu_exp.pkg_name not in refpkg_map:
             phylotu_exp.load_ref_pkg(refpkg_dir)
             refpkg_map[phylotu_exp.pkg_name] = phylotu_exp.ref_pkg
@@ -916,7 +932,7 @@ def evaluate_clusters(project_path: str, n_examples=0, **kwargs):
     filter_incomplete_lineages(cluster_experiments)
     filter_by_seq_lengths(cluster_experiments, min_perc=20)
 
-    taxonomic_distinctness_plot(prepare_taxonomic_distinctness_dataframe(cluster_experiments), fig_dir)
+    taxonomic_distinctness_plots(prepare_taxonomic_distinctness_dataframe(cluster_experiments), fig_dir)
 
     # Percentage of sequences that were clustered together correctly at each length and rank
     acc_df = prepare_clustering_accuracy_dataframe(cluster_experiments)
