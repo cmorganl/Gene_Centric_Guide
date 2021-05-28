@@ -136,6 +136,14 @@ class ClusterExperiment:
 
         return 1
 
+    def convert_length_to_percentage(self) -> None:
+        hmm_perc = float(100 * int(self.seq_length) / self.ref_pkg.hmm_length())
+        if hmm_perc > 100.0:
+            self.seq_length = 100.0
+        else:
+            self.seq_length = hmm_perc
+        return
+
     def load_otu_matrix(self, delim="\t") -> pd.DataFrame:
         return pd.read_csv(self.matrix_file, sep=delim)
 
@@ -297,6 +305,18 @@ def filter_incomplete_lineages(cluster_experiments: list) -> None:
     return
 
 
+def filter_by_seq_lengths(cluster_experiments: list, min_perc=20) -> None:
+    i = 0
+    while i < len(cluster_experiments):
+        phylotu_exp = cluster_experiments[i]  # type: ClusterExperiment
+        phylotu_exp.convert_length_to_percentage()
+        if phylotu_exp.seq_length < min_perc:
+            cluster_experiments.pop(i)
+        else:
+            i += 1
+    return
+
+
 def get_key(a_dict: dict, val):
     for key, value in a_dict.items():
         if val == value:
@@ -311,13 +331,12 @@ def prepare_clustering_cohesion_dataframe(cluster_experiments: list) -> pd.DataF
     cohesion = []
     p_bar = tqdm(total=len(cluster_experiments), ncols=100, desc="Preparing cluster completeness dataframe")
     for phylotu_exp in sorted(cluster_experiments, key=lambda x: int(x.seq_length)):  # type: ClusterExperiment
-        hmm_perc = float(100 * int(phylotu_exp.seq_length) / phylotu_exp.ref_pkg.hmm_length())
         for seq_name in phylotu_exp.cluster_assignments:
             cohesion.append(phylotu_exp.report_query_completeness(phylotu_exp.cluster_assignments[seq_name]))
             cluster_modes.append(phylotu_exp.cluster_mode)
             ref_pkgs.append(phylotu_exp.pkg_name)
             resolutions.append(phylotu_exp.cluster_resolution)
-            lengths.append(hmm_perc)
+            lengths.append(phylotu_exp.seq_length)
         p_bar.update()
     p_bar.close()
 
@@ -341,10 +360,9 @@ def prepare_clustering_accuracy_dataframe(cluster_experiments: list) -> pd.DataF
             re_map[phylotu_exp.cluster_resolution] = {}
         taxon_cluster_ids = phylotu_exp.taxonomically_resolve_clusters()
         re_map[phylotu_exp.cluster_resolution].update(phylotu_exp.renamed_taxa)
-        hmm_perc = float(100 * int(phylotu_exp.seq_length) / phylotu_exp.ref_pkg.hmm_length())
         for taxon in taxon_cluster_ids:  # type: str
             refpkgs.append(phylotu_exp.pkg_name)
-            lengths.append(hmm_perc)
+            lengths.append(phylotu_exp.seq_length)
             clusters.append(phylotu_exp.cluster_mode)
             resos.append(phylotu_exp.cluster_resolution)
             taxa.append(taxon)
@@ -483,13 +501,12 @@ def prepare_taxonomic_distinctness_dataframe(cluster_experiments: list) -> pd.Da
     for phylotu_exp in cluster_experiments:  # type: ClusterExperiment
         phylotu_exp.load_cluster_members()
         phylotu_exp.ref_pkg.taxa_trie.validate_rank_prefixes()
-        hmm_perc = float(100 * int(phylotu_exp.seq_length) / phylotu_exp.ref_pkg.hmm_length())
         for potu, members in phylotu_exp.cluster_members.items():  # type: (str, set)
             taxa = {m: phylotu_exp.query_taxon_map[m] for m in members}
             data_dict["RefPkg"].append(phylotu_exp.pkg_name)
             data_dict["Resolution"].append(phylotu_exp.cluster_resolution)
             data_dict["Clustering"].append(phylotu_exp.cluster_mode)
-            data_dict["Length"].append(hmm_perc)
+            data_dict["Length"].append(phylotu_exp.seq_length)
             data_dict["Cluster"].append(potu)
             data_dict["WTD"].append(ts.lca_calculations.taxonomic_distinctness(taxa,
                                                                                rank=phylotu_exp.cluster_resolution,
@@ -707,7 +724,8 @@ def taxonomic_distinctness_plot(clustering_df: pd.DataFrame, output_dir: str) ->
         category_orders=_CATEGORIES,
         facet_col="Resolution",
         labels=_LABEL_MAT,
-        title="Comparing taxonomic distinctness of clusters between reference-guided and de novo methods")
+        title="Taxonomic distinctness is greater in reference-guided clusters than de novo")
+    box_plt.for_each_annotation(lambda a: a.update(text=a.text.split("=")[-1]))
     # box_plt.show()
 
     species_wtd_df = clustering_df[clustering_df["Resolution"] == "species"]
@@ -715,14 +733,18 @@ def taxonomic_distinctness_plot(clustering_df: pd.DataFrame, output_dir: str) ->
         species_wtd_df.groupby(["Clustering", "RefPkg", "Length"]).mean(numeric_only=True).reset_index(),
         x="Length", y="WTD", color="Clustering",
         color_discrete_sequence=palette,
-        facet_col_spacing=0.05, range_x=[30, 101],
+        facet_col_spacing=0.05,
         line_shape="spline",
         category_orders=_CATEGORIES,
         facet_col="RefPkg",
         labels=_LABEL_MAT,
         title="Effect of sequence length on cluster taxonomic distinctness at species resolution")
-    line_plt.update_traces(line=dict(width=4))
+    line_plt.for_each_annotation(lambda a: a.update(text=a.text.split("=")[-1]))
+    line_plt.update_traces(line=dict(width=2))
     line_plt.update_yaxes(autorange=True)
+    line_plt.update_xaxes(tickangle=45,
+                          title_font=None,
+                          title_standoff=10)
     # line_plt.show()
     write_images_from_dict({box_path: box_plt, line_path: line_plt})
     return
@@ -872,6 +894,7 @@ def evaluate_clusters(project_path: str, n_examples=0, **kwargs):
     print("Mapping query sequences to taxa")
     map_queries_to_taxa(cluster_experiments, acc_taxon_map)
     filter_incomplete_lineages(cluster_experiments)
+    filter_by_seq_lengths(cluster_experiments, min_perc=20)
 
     taxonomic_distinctness_plot(prepare_taxonomic_distinctness_dataframe(cluster_experiments), fig_dir)
 
