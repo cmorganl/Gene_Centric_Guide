@@ -17,7 +17,7 @@ from bokeh import palettes
 from tqdm import tqdm
 from sklearn import metrics
 from scipy.signal import savgol_filter
-from scipy.stats import f_oneway, normaltest
+from scipy.stats import f_oneway, normaltest, ttest_ind
 import statsmodels.api as sm
 
 pio.templates.default = "plotly_white"
@@ -529,7 +529,8 @@ def prepare_evodist_accuracy_dataframe(cluster_experiments: list) -> pd.DataFram
                  "Query": [],
                  "Proper": [],
                  "Pendant": [],
-                 "Distal": []}
+                 "Distal": [],
+                 "Total": []}
     p_bar = tqdm(total=len(cluster_experiments), ncols=100, desc="Preparing evolutionary distance dataframe")
     for phylotu_exp in cluster_experiments:  # type: ClusterExperiment
         taxon_cluster_ids = phylotu_exp.taxonomically_resolve_clusters()
@@ -551,6 +552,7 @@ def prepare_evodist_accuracy_dataframe(cluster_experiments: list) -> pd.DataFram
             for pplace in phylotu_exp.phylo_place_map[query_name]:  # type: ts.phylo_seq.PhyloPlace
                 data_dict["Pendant"].append(pplace.pendant_length)
                 data_dict["Distal"].append(pplace.distal_length)
+                data_dict["Total"].append(pplace.total_distance())
         p_bar.update()
     p_bar.close()
     evo_df = pd.DataFrame(data_dict)
@@ -654,6 +656,29 @@ def acc_summary_stats(accuracy_df: pd.DataFrame, kwargs: dict) -> pd.DataFrame:
                                                groups=anova_df.stack().reset_index()["Clustering"])
     print(res.summary())
     return summary_df
+
+
+def evo_summary_stats(evo_dist_df: pd.DataFrame, tables_dir) -> None:
+    """Write the mean evolutionary distances between the correct and incorrect clusters across different methods."""
+    mean_dist_df = evo_dist_df.groupby(["Clustering", "Proper", "Query", "RefPkg"]).mean(numeric_only=True)[
+        "Total"].reset_index()
+    mean_dist_df = mean_dist_df.astype({"Proper": "str"})
+    summary_df = mean_dist_df.groupby(["Clustering", "Proper"]).describe()
+    summary_df.to_csv(os.path.join(tables_dir,
+                                   "dist_summary_" + time.strftime("%d-%m-%y_%H%M%S", time.localtime()) + ".csv"),
+                      index=False,
+                      mode='w')
+    print(summary_df)
+
+    mode_evo_vals = []
+    for mode in set(mean_dist_df["Clustering"]):
+        mode_df = mean_dist_df[mean_dist_df["Clustering"] == mode]
+        anova_df = mode_df.pivot(values="Total", columns="Proper")
+        for outcome in anova_df.columns:
+            mode_evo_vals.append(anova_df[[outcome]].dropna())
+        print("T-test between cluster outcomes for '{}':".format(mode),
+              ttest_ind(*mode_evo_vals))
+    return
 
 
 def completeness_summary_stats(comp_df: pd.DataFrame) -> None:
@@ -932,6 +957,10 @@ def evaluate_clusters(project_path: str, n_examples=0, reso_ranks=None, **kwargs
     filter_incomplete_lineages(cluster_experiments)
     filter_by_seq_lengths(cluster_experiments, min_perc=20)
 
+    evo_dist_df = prepare_evodist_accuracy_dataframe(cluster_experiments)
+    evo_summary_stats(evo_dist_df, tab_dir)
+    evolutionary_summary_plots(evo_dist_df, fig_dir)
+
     taxonomic_distinctness_plots(prepare_taxonomic_distinctness_dataframe(cluster_experiments), fig_dir)
 
     # Percentage of sequences that were clustered together correctly at each length and rank
@@ -951,8 +980,6 @@ def evaluate_clusters(project_path: str, n_examples=0, reso_ranks=None, **kwargs
     taxonomic_relationships_plot(prepare_relationships_dataframe(cluster_experiments), fig_dir)
 
     taxonomic_summary_plots(prepare_taxonomic_summary_dataframe(cluster_experiments), fig_dir)
-
-    evolutionary_summary_plots(prepare_evodist_accuracy_dataframe(cluster_experiments), fig_dir)
 
     sequence_cohesion_plots(comp_df, fig_dir)
 
