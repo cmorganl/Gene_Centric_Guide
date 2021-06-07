@@ -1,0 +1,1 @@
+{"graftm_package_version": 3, "align_hmm": "graftmzaz6li8n_align.hmm", "search_hmms": ["graftmov0ss54h_search.hmm"], "refpkg": "RadA.refpkg", "trusted_cutoff": false, "range": 419.7452830188679, "unaligned_sequence_database": "RadA.fasta", "diamond_database": "RadA.dmnd"}

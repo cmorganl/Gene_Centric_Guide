@@ -1,0 +1,1 @@
+{"graftm_package_version": 3, "align_hmm": "graftm_zzzjmbf_align.hmm", "search_hmms": ["graftmgt_9ovse_search.hmm"], "refpkg": "PF01015.refpkg", "trusted_cutoff": false, "range": 333.4455445544554, "unaligned_sequence_database": "PF01015.fasta", "diamond_database": "PF01015.dmnd"}
