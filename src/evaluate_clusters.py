@@ -678,6 +678,7 @@ def evo_summary_stats(evo_dist_df: pd.DataFrame, tables_dir) -> None:
             mode_evo_vals.append(anova_df[[outcome]].dropna())
         print("T-test between cluster outcomes for '{}':".format(mode),
               ttest_ind(*mode_evo_vals))
+        mode_evo_vals.clear()
     return
 
 
