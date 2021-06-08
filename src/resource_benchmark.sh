@@ -3,7 +3,16 @@
 project_path=$( dirname $PWD )
 
 usage="USAGE:\n
-                $0 -g [genomes.csv] [-p project_path=$project_path] [-x tmp_dir=$project_path/tmp] [-r diamond_db=/mnt/nfs/sharknado/LimsData/Hallam_Databases/formatted/diamond/refseq.dmnd]"
+                $0 -g [genomes.csv] \
+                [-p project_path=$project_path] \
+                [-x tmp_dir=$project_path/tmp] \
+                [-r diamond_db=/mnt/sdb/Hallam_projects/Hallam_Databases/formatted/Protein/refseq.dmnd] \
+                [-t taxonomy_root=/mnt/sdb/Hallam_projects/Hallam_Databases/raw/Taxonomy/]
+\n\n
+        'project_path' is the path to the Gene_Centric_Guide directory\n
+        'tmp_dir' is the path to write all intermediate files and is removed at the end of the run\n
+        'diamond_db' is the path to a formatted reference database for DIAMOND\n
+        'taxonomy_root' is a directory containing the prot.accession2taxid, taxdump/nodes.dmp and taxdump/names.dmp"
 
 if [ $# -eq 0 ]; then
 	echo "ERROR: No arguments provided."
@@ -19,7 +28,7 @@ elif [ $# -lt 1 ]; then
 fi
 
 # Set arguments
-while getopts ":g:p:r:x:" opt; do
+while getopts ":g:p:r:x:t:" opt; do
   case $opt in
   g) genomes_list="$OPTARG"
     ;;
@@ -28,6 +37,8 @@ while getopts ":g:p:r:x:" opt; do
   x) tmp_dir="$OPTARG"
     ;;
   r) refseq_db="$OPTARG"
+    ;;
+  t) tax_root="$OPTARG"
     ;;
   \?) echo "Invalid option -$OPTARG" >&2
     ;;
@@ -38,15 +49,20 @@ if [ -z $tmp_dir ]; then
   tmp_dir="${project_path}/tmp/"
 fi
 if [ -z $refseq_db ]; then
-  refseq_db="/mnt/nfs/sharknado/LimsData/Hallam_Databases/formatted/diamond/refseq.dmnd"
+  refseq_db="/mnt/sdb/Hallam_projects/Hallam_Databases/formatted/Protein/refseq.dmnd"
+fi
+if [ -z $tax_root ]; then
+  tax_root="/mnt/sdb/Hallam_projects/Hallam_Databases/raw/Taxonomy/"
 fi
 
 gpkg_root=${project_path}/tax_summary/GraftM_gpkgs/
 refpkg_root=${project_path}/tax_summary/tax_summary_refpkgs/
+cat_genomes=${tmp_dir}/genomes.fasta
 time_log=${project_path}/runtime_log.csv
 thread_scale=(4 8 16)
+read_len=8000
 
-if [ ! -d $gpkg_root ] | [ ! -d $refpkg_root ]; then
+if [ ! -d $gpkg_root ] || [ ! -d $refpkg_root ]; then
   echo "ERROR: unable to locate reference package directories $refpkg_root and $gpkg_root"
   exit
 fi
@@ -57,12 +73,19 @@ printf "Running with the following configuration:
         TreeSAPP RefPkgs path: $refpkg_root
         GraftM RefPkgs path: $gpkg_root
         DIAMOND database path: $refseq_db
+        Taxonomy root directory: $tax_root
+        Simulated read lengths: $read_len
         Threads: $thread_scale
-        Log file: $time_log\n"
-exit
+        Log file: $time_log\n\n"
 
+##
+# Clean up old outputs if necessary
 if [ ! -d $tmp_dir ]; then
 	mkdir $tmp_dir
+fi
+
+if [ -f $cat_genomes ]; then
+  rm $cat_genomes
 fi
 
 if [ -f $time_log ]; then
@@ -76,21 +99,40 @@ echo "Sample.Name,Fasta.Length (bp),Software,Molecule,Threads,Time (mm:ss),Memor
 while read line
 do
   taxid=$( echo "$line" | gawk -F, '{ print $2 }')
-  fa_url=$( echo "$line" | gawk -F, '{ print $4 }')
+  fa_url=$( echo "$line" | gawk -F, '{ print $4 }' | sed 's/$/_genomic.fna.gz/g')
   genome_file=${tmp_dir}/${taxid}.fasta.gz
   if [ -f $genome_file ]; then
     continue
   fi
-  if [ $fa_url == "PrefixURL" ]; then
+  if [ $taxid == "TaxID" ]; then
     continue
   fi
   echo "Downloading sequences for $( echo "$line" | gawk -F, '{ print $1 }')"
   wget -O $genome_file $fa_url 1>/dev/null 2>&1
-#  gunzip -c $taxid.faa.gz | seqkit replace -p "^" -r "${taxid}." >>$proteins_fa
-#  rm $taxid.faa.gz
+  gunzip -c $genome_file | seqkit replace -p "^" -r "${taxid}." >>$cat_genomes
+  rm $genome_file
 done<$genomes_list
 
-for fa_nuc in ${tmp_dir}/*.fasta.gz
+printf "Simulating metagenomes... "
+factor=10
+while [ $factor -lt 10000 ]
+do
+  len=$(echo "$factor*100" | bc)
+  if [ ! -f $tmp_dir/sim_${len}.1.fna ] || [ ! -f $tmp_dir/sim_${len}.1.fna ]; then
+    wgsim -1 $read_len -2 $read_len -S 2021 -N $len $cat_genomes $tmp_dir/sim_${len}.1.fq $tmp_dir/sim_${len}.2.fq 1>/dev/null 2>&1
+    # Convert the FASTQ files to FASTA
+    for fq in $tmp_dir/sim_${len}.?.fq
+    do
+      fna=$( echo $fq | sed 's/.fq/.fna/g' )
+      seqkit fq2fa $fq >$fna
+      rm $fq
+    done
+  fi
+  factor=$(echo "$factor*2" | bc)
+done
+printf "done.\n"
+
+for fa_nuc in ${tmp_dir}/*.fna
 do
   for n_procs in "${thread_scale[@]}"
   do
@@ -104,8 +146,8 @@ do
 --query $fa_nuc \
 --out $tmp_dir/diamond-refseq.tsv --outfmt 6 \
 --index-chunks 1 --block-size 10 \
---taxonmap /mnt/nfs/sharknado/LimsData/Hallam_Databases/raw/Taxonomy/prot.accession2taxid \
---taxonnodes /usr/local/share/centrifuge_DBs/nodes.dmp --taxonnames /usr/local/share/centrifuge_DBs/names.dmp \
+--taxonmap $tax_root/prot.accession2taxid \
+--taxonnodes $tax_root/taxdump/nodes.dmp --taxonnames $tax_root/taxdump/names.dmp \
 --threads $n_procs --max-target-seqs 10 --strand both"
     mmem=$(grep -w 'Maximum resident set' tmp.txt | gawk '{ print $NF }')
     rtime=$(grep -w 'Elapsed' tmp.txt | gawk '{ print $NF }')
@@ -182,7 +224,11 @@ fi
   done
 done
 
-if [ -f $tmp_dir ]
-	then rm -r $tmp_dir
-fi
+#if [ -d $tmp_dir ]; then
+#  rm $cat_genomes
+#  rm -r $tmp_dir/graftm
+#  rm -r $tmp_dir/$sid_prot_treesapp $tmp_dir/$sid
+#  rm $tmp_dir/diamond-refseq.tsv
+#  rm $tmp_dir/sim_*.?.fna
+#fi
 
