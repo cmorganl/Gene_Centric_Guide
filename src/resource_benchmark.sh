@@ -63,7 +63,7 @@ gpkg_root=${project_path}/tax_summary/GraftM_gpkgs/
 refpkg_root=${project_path}/tax_summary/tax_summary_refpkgs/
 cat_genomes=${tmp_dir}/genomes.fasta
 time_log=${project_path}/runtime_log.csv
-thread_scale=(4 8 16)
+thread_scale=(16 8 4)
 read_len=8000
 
 if [ ! -d $gpkg_root ] || [ ! -d $refpkg_root ]; then
@@ -92,7 +92,7 @@ if [ -f $time_log ]; then
 fi
 touch $time_log
 
-echo "Sample.Name,Fasta.Length (bp),Software,Molecule,Threads,Time (mm:ss),Memory.Max (kbytes)" >>$time_log
+echo "Sample.Name,Fasta.Length,Software,Molecule,Threads,Time (mm:ss),Memory.Max (kbytes)" >>$time_log
 
 # Download genomes
 if [ ! -f $cat_genomes ]; then
@@ -143,8 +143,8 @@ do
   for n_procs in "${thread_scale[@]}"
   do
     fa_nuc_len=$(seqkit stats $fa_nuc | tail -n 1 | gawk '{ print $5 }')
+	  sid=$( basename $fa_nuc | sed 's/.fna//g' )
     fa_aa=${ts_out_prefix}_nuc/intermediates/orf-call/${sid}_ORFs.faa
-	  sid=$( basename $fa_nuc | sed 's/.fasta.gz//g' )
 	  echo "Analyzing $sid ($fa_nuc_len chars) with $n_procs threads"
 
 # Run DIAMOND blastx on nucleotide sequences
