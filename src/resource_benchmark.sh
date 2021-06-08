@@ -2,7 +2,7 @@
 
 project_path=$( dirname $PWD )
 default_tmp_dir="${project_path}/tmp"
-default_refseq_db="/mnt/sdb/Hallam_projects/Hallam_Databases/formatted/Protein/refseq.dmnd"
+default_refseq_db="/mnt/sdb/Hallam_projects/Hallam_Databases/formatted/Protein/uniref90.dmnd"
 default_tax_root="/mnt/sdb/Hallam_projects/Hallam_Databases/raw/Taxonomy/"
 
 usage="
@@ -21,9 +21,6 @@ USAGE:\n
 
 if [ $# -eq 0 ]; then
 	echo "ERROR: No arguments provided."
-	echo -e $usage
-	exit
-elif [ $1 == "-h" ]; then
 	echo -e $usage
 	exit
 elif [ $# -lt 1 ]; then
@@ -46,6 +43,8 @@ while getopts ":g:p:r:x:t:" opt; do
   t) tax_root="$OPTARG"
     ;;
   \?) echo "Invalid option -$OPTARG" >&2
+    echo -e $usage
+    exit
     ;;
   esac
 done
@@ -83,14 +82,9 @@ printf "Running with the following configuration:
         Threads: $thread_scale
         Log file: $time_log\n\n"
 
-##
-# Clean up old outputs if necessary
+# Prepare temporary directory and relevant files for analysis
 if [ ! -d $tmp_dir ]; then
 	mkdir $tmp_dir
-fi
-
-if [ -f $cat_genomes ]; then
-  rm $cat_genomes
 fi
 
 if [ -f $time_log ]; then
@@ -101,22 +95,26 @@ touch $time_log
 echo "Sample.Name,Fasta.Length (bp),Software,Molecule,Threads,Time (mm:ss),Memory.Max (kbytes)" >>$time_log
 
 # Download genomes
-while read line
-do
-  taxid=$( echo "$line" | gawk -F, '{ print $2 }')
-  fa_url=$( echo "$line" | gawk -F, '{ print $4 }' | sed 's/$/_genomic.fna.gz/g')
-  genome_file=${tmp_dir}/${taxid}.fasta.gz
-  if [ -f $genome_file ]; then
-    continue
-  fi
-  if [ $taxid == "TaxID" ]; then
-    continue
-  fi
-  echo "Downloading sequences for $( echo "$line" | gawk -F, '{ print $1 }')"
-  wget -O $genome_file $fa_url 1>/dev/null 2>&1
-  gunzip -c $genome_file | seqkit replace -p "^" -r "${taxid}." >>$cat_genomes
-  rm $genome_file
-done<$genomes_list
+if [ ! -f $cat_genomes ]; then
+  while read line
+  do
+    taxid=$( echo "$line" | gawk -F, '{ print $2 }')
+    fa_url=$( echo "$line" | gawk -F, '{ print $4 }' | sed 's/$/_genomic.fna.gz/g')
+    genome_file=${tmp_dir}/${taxid}.fasta.gz
+    if [ -f $genome_file ]; then
+      continue
+    fi
+    if [ $taxid == "TaxID" ]; then
+      continue
+    fi
+    echo "Downloading sequences for $( echo "$line" | gawk -F, '{ print $1 }')"
+    wget -O $genome_file $fa_url 1>/dev/null 2>&1
+    gunzip -c $genome_file | seqkit replace -p "^" -r "${taxid}." >>$cat_genomes
+    rm $genome_file
+  done<$genomes_list
+else
+  echo "Using $cat_genomes from previous run."
+fi
 
 printf "Simulating metagenomes... "
 factor=10
@@ -137,23 +135,27 @@ do
 done
 printf "done.\n"
 
+ts_out_prefix=$tmp_dir/treesapp
+gm_out_prefix=$tmp_dir/graftm
+dd_out_prefix=$tmp_dir/diamond
 for fa_nuc in ${tmp_dir}/*.fna
 do
   for n_procs in "${thread_scale[@]}"
   do
     fa_nuc_len=$(seqkit stats $fa_nuc | tail -n 1 | gawk '{ print $5 }')
-    fa_aa=$tmp_dir/$sid/final_outputs/${sid}_ORFs.faa
+    fa_aa=${ts_out_prefix}_nuc/intermediates/orf-call/${sid}_ORFs.faa
 	  sid=$( basename $fa_nuc | sed 's/.fasta.gz//g' )
+	  echo "Analyzing $sid ($fa_nuc_len chars) with $n_procs threads"
 
 # Run DIAMOND blastx on nucleotide sequences
     /usr/bin/time -v --output=tmp.txt bash -c "diamond blastx \
 --db $refseq_db \
 --query $fa_nuc \
---out $tmp_dir/diamond-refseq.tsv --outfmt 6 \
---index-chunks 1 --block-size 10 \
+--out ${dd_out_prefix}_nuc.tsv --outfmt 6 \
+--index-chunks 4 --block-size 4.0 \
 --taxonmap $tax_root/prot.accession2taxid \
 --taxonnodes $tax_root/taxdump/nodes.dmp --taxonnames $tax_root/taxdump/names.dmp \
---threads $n_procs --max-target-seqs 10 --strand both"
+--threads $n_procs --max-target-seqs 10 --strand both "
     mmem=$(grep -w 'Maximum resident set' tmp.txt | gawk '{ print $NF }')
     rtime=$(grep -w 'Elapsed' tmp.txt | gawk '{ print $NF }')
     echo "$sid,$fa_nuc_len,DIAMOND,nuc,$n_procs,$rtime,$mmem" >>$time_log
@@ -163,7 +165,7 @@ do
     do
 		  /usr/bin/time -v --output=tmp.txt bash -c "graftM graft \
 --search_method hmmsearch --assignment_method pplacer \
---output_directory $tmp_dir/graftm \
+--output_directory ${gm_out_prefix}_nuc \
 --forward $fa_nuc --graftm_package $gpkg \
 --verbosity 2 --threads $n_procs \
 --input_sequence_type nucleotide --force"
@@ -175,7 +177,7 @@ do
 # Run TreeSAPP on nucleotide sequences
 	  /usr/bin/time -v --output=tmp.txt bash -c "treesapp assign \
 -i $fa_nuc \
--o $tmp_dir/$sid \
+-o ${ts_out_prefix}_nuc \
 --refpkg_dir $refpkg_root \
 -n $n_procs \
 --overwrite --trim_align"
@@ -194,7 +196,7 @@ fi
 # Run TreeSAPP on amino acid sequences
 	/usr/bin/time -v --output=tmp.txt bash -c "treesapp assign \
 -i $fa_aa \
--o $tmp_dir/$sid_prot_treesapp \
+-o ${ts_out_prefix}_prot \
 --refpkg_dir $refpkg_root \
 -n $n_procs \
 --overwrite --trim_align"
@@ -206,8 +208,9 @@ fi
 		/usr/bin/time -v --output=tmp.txt bash -c "diamond blastp \
 --db $refseq_db \
 --query $fa_aa \
---out $tmp_dir/diamond-refseq.tsv --outfmt 6 \
---index-chunks 1 --block-size 10 \
+--out ${dd_out_prefix}_prot.tsv \
+--outfmt 6 \
+--index-chunks 4 --block-size 4.0 \
 --taxonmap /mnt/nfs/sharknado/LimsData/Hallam_Databases/raw/Taxonomy/prot.accession2taxid \
 --taxonnodes /usr/local/share/centrifuge_DBs/nodes.dmp --taxonnames /usr/local/share/centrifuge_DBs/names.dmp \
 --threads $n_procs --max-target-seqs 10 --strand both"
@@ -216,16 +219,18 @@ fi
 		echo "$sid,$fa_aa_len,DIAMOND,aa,$n_procs,$rtime,$mmem" >>$time_log
 
 # Run GraftM on amino acid sequences
-	for gpkg in $gpkg_root
-    /usr/bin/time -v --output=tmp.txt bash -c "graftM graft \
+	  for gpkg in $gpkg_root
+	  do
+      /usr/bin/time -v --output=tmp.txt bash -c "graftM graft \
 --search_method hmmsearch --assignment_method pplacer --input_sequence_type aminoacid \
---output_directory $tmp_dir/graftm \
+--output_directory ${gm_out_prefix}_prot \
 --forward $fa_aa \
 --graftm_package $gpkg \
 --verbosity 2 --threads $n_procs --force"
-    mmem=$(grep -w 'Maximum resident set' tmp.txt | gawk '{ print $NF }')
-    rtime=$(grep -w 'Elapsed' tmp.txt | gawk '{ print $NF }')
-    echo "$sid,$fa_aa_len,GraftM,aa,$n_procs,$rtime,$mmem" >>$time_log
+      mmem=$(grep -w 'Maximum resident set' tmp.txt | gawk '{ print $NF }')
+      rtime=$(grep -w 'Elapsed' tmp.txt | gawk '{ print $NF }')
+      echo "$sid,$fa_aa_len,GraftM,aa,$n_procs,$rtime,$mmem" >>$time_log
+    done
   done
 done
 
