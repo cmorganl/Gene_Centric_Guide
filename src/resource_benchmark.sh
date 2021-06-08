@@ -1,18 +1,23 @@
 #!/bin/bash
 
 project_path=$( dirname $PWD )
+default_tmp_dir="${project_path}/tmp"
+default_refseq_db="/mnt/sdb/Hallam_projects/Hallam_Databases/formatted/Protein/refseq.dmnd"
+default_tax_root="/mnt/sdb/Hallam_projects/Hallam_Databases/raw/Taxonomy/"
 
-usage="USAGE:\n
+usage="
+USAGE:\n
                 $0 -g [genomes.csv] \
                 [-p project_path=$project_path] \
-                [-x tmp_dir=$project_path/tmp] \
-                [-r diamond_db=/mnt/sdb/Hallam_projects/Hallam_Databases/formatted/Protein/refseq.dmnd] \
-                [-t taxonomy_root=/mnt/sdb/Hallam_projects/Hallam_Databases/raw/Taxonomy/]
+                [-x tmp_dir=$default_tmp_dir] \
+                [-r diamond_db=$default_refseq_db] \
+                [-t taxonomy_root=$default_tax_root]
 \n\n
         'project_path' is the path to the Gene_Centric_Guide directory\n
         'tmp_dir' is the path to write all intermediate files and is removed at the end of the run\n
         'diamond_db' is the path to a formatted reference database for DIAMOND\n
-        'taxonomy_root' is a directory containing the prot.accession2taxid, taxdump/nodes.dmp and taxdump/names.dmp"
+        'taxonomy_root' is a directory containing the prot.accession2taxid, taxdump/nodes.dmp and taxdump/names.dmp
+\n\n"
 
 if [ $# -eq 0 ]; then
 	echo "ERROR: No arguments provided."
@@ -46,13 +51,13 @@ while getopts ":g:p:r:x:t:" opt; do
 done
 
 if [ -z $tmp_dir ]; then
-  tmp_dir="${project_path}/tmp/"
+  tmp_dir=$default_tmp_dir
 fi
 if [ -z $refseq_db ]; then
-  refseq_db="/mnt/sdb/Hallam_projects/Hallam_Databases/formatted/Protein/refseq.dmnd"
+  refseq_db=$default_refseq_db
 fi
 if [ -z $tax_root ]; then
-  tax_root="/mnt/sdb/Hallam_projects/Hallam_Databases/raw/Taxonomy/"
+  tax_root=$default_tax_root
 fi
 
 gpkg_root=${project_path}/tax_summary/GraftM_gpkgs/
