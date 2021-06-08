@@ -98,7 +98,9 @@ do
 		--fastx_input $queries \
 		--output $prefix/$ts_assign_out \
 		--refpkg_dir $refpkg_dir \
-		-m prot --num_procs $n_threads --delete --overwrite
+		--num_procs $n_threads \
+		--trim_align \
+		--delete --overwrite
 	else
 	  echo "Using treesapp assign classifications in $prefix/$ts_assign_out"
 	fi
@@ -124,7 +126,7 @@ do
           -o $potu_rg_out \
           --mode ref_guided \
           --num_procs $n_threads \
-          --overwrite
+          --overwrite --delete
       fi
 
       # De novo clusters by recreating the phylogeny
@@ -137,7 +139,8 @@ do
           --tax_rank $rank \
           -o $potu_dn_psc_out \
           --num_procs $n_threads \
-          --mode de_novo --pre_cluster psc
+          --mode de_novo --pre_cluster psc \
+          --overwrite --delete
       fi
 
       # De novo clusters by recreating the phylogeny
@@ -150,10 +153,12 @@ do
           --tax_rank $rank \
           -o $potu_dn_aln_out \
           --num_procs $n_threads \
-          --mode de_novo --pre_cluster align
+          --mode de_novo --pre_cluster align \
+          --overwrite --delete
       fi
     done
   done
+  rm $queries
 done
 
 rm $tmp_input
