@@ -66,11 +66,16 @@ def parallel_plot(df: pd.DataFrame, output_dir: str) -> None:
     return
 
 
-def convert_mmss_to_float(vec: list) -> list:
+def convert_hhmmss_to_float(vec: list) -> list:
     float_vec = []
     for t in vec:
-        m, s = [float(x) for x in t.split(':')]
-        float_vec.append((m*60) + s)
+        seconds = 0.0
+        scalar = 1
+        groups = [float(x) for x in t.split(':')]
+        while groups:
+            seconds += scalar * groups.pop()
+            scalar = scalar * 60
+        float_vec.append(seconds)
     return float_vec
 
 
@@ -89,8 +94,11 @@ def merge_graftm_resources(data_df: pd.DataFrame) -> pd.DataFrame:
 
 def main(time_table: str, figures_dir: str) -> None:
     data_df = pd.read_csv(time_table, sep=",", header=0)
-    data_df["Time (s)"] = convert_mmss_to_float(data_df["Time (mm:ss)"])
+    data_df["Time (s)"] = convert_hhmmss_to_float(data_df["Time (mm:ss)"])
     data_df = merge_graftm_resources(data_df)
+
+    # Remove DIAMOND samples
+    data_df = data_df[data_df["Software"] != "DIAMOND"]
 
     ram_plot(data_df, figures_dir)
 
