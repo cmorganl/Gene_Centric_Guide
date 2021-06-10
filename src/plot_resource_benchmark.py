@@ -3,29 +3,44 @@
 import os
 
 import pandas as pd
+from scipy.signal import savgol_filter
 import plotly.express as px
+import plotly.graph_objs as go
 
 from evaluate_clusters import write_images_from_dict
 
 _LABEL_MAT = {"Fasta.Length": "Query size (aa/bp)",
               "Memory.Max (kbytes)": "Maximum memory (kbytes)"}
-_CATEGORIES = {"Software": ["GraftM", "DIAMOND", "TreeSAPP", "TreeSAPP-aELW", "TreeSAPP-Max(LWR)"]}
+_CATEGORIES = {"Software": ["GraftM", "DIAMOND", "TreeSAPP", "TreeSAPP-aELW", "TreeSAPP-Max(LWR)"],
+               "Molecule": ["nuc", "aa"]}
+
+
+def update_figure_aesthetics(fig: go.Figure) -> None:
+    fig.update_xaxes(matches=None)
+    fig.update_xaxes(autorange=True)
+    fig.update_traces(line=dict(width=12),
+                      marker_line_color='rgb(105,105,105)',
+                      marker_line_width=1)
+    fig.update_layout(legend=dict(itemsizing="constant"))
+    return
 
 
 def ram_plot(df: pd.DataFrame, output_dir: str) -> None:
+    group = ["Software", "Fasta.Length", "Molecule"]
     plot_prefix = os.path.join(output_dir, "RAM_line")
-    fig = px.line(df,
+    mem_df = df.groupby(group).max(numeric_only=True)["Memory.Max (kbytes)"].reset_index()
+    mem_df["Memory.Max (kbytes)"] = savgol_filter(mem_df["Memory.Max (kbytes)"],
+                                                  window_length=55, polyorder=5)
+    fig = px.line(mem_df,
                   x="Fasta.Length", y="Memory.Max (kbytes)",
                   color="Software", line_group="Software",
                   color_discrete_sequence=px.colors.qualitative.Set3,
                   facet_col="Molecule",
+                  line_shape="spline",
                   category_orders=_CATEGORIES,
-                  labels=_LABEL_MAT)
-    fig.update_traces(mode='markers+lines')
-    fig.update_xaxes(autorange=True)
-    fig.update_traces(line=dict(width=4),
-                      marker_line_color='rgb(105,105,105)',
-                      marker_line_width=1)
+                  labels=_LABEL_MAT,
+                  render_mode="svg")
+    update_figure_aesthetics(fig)
     write_images_from_dict({plot_prefix: fig})
     return
 
@@ -33,35 +48,17 @@ def ram_plot(df: pd.DataFrame, output_dir: str) -> None:
 def time_plot(df: pd.DataFrame, output_dir: str) -> None:
     plot_prefix = os.path.join(output_dir, "compute_time")
     fig = px.line(df,
-                  x="Fasta.Length", y="Time (s)",
+                  x="Fasta.Length", y="Time (m)",
                   color="Software", line_group="Software",
                   facet_col="Molecule",
+                  facet_row="Threads",
                   color_discrete_sequence=px.colors.qualitative.Set3,
                   category_orders=_CATEGORIES,
-                  labels=_LABEL_MAT)
-    fig.update_traces(mode='markers+lines')
-    fig.update_xaxes(autorange=True)
-    fig.update_traces(line=dict(width=4),
-                      marker_line_color='rgb(105,105,105)',
-                      marker_line_width=1)
-    write_images_from_dict({plot_prefix: fig})
-    return
+                  labels=_LABEL_MAT,
+                  render_mode="svg")
 
-
-def parallel_plot(df: pd.DataFrame, output_dir: str) -> None:
-    plot_prefix = os.path.join(output_dir, "parallelization")
-    fig = px.line(df,
-                  x="Threads", y="Time (s)",
-                  color="Software", line_group="Software",
-                  facet_col="Molecule",
-                  color_discrete_sequence=px.colors.qualitative.Set3,
-                  category_orders=_CATEGORIES,
-                  labels=_LABEL_MAT)
+    update_figure_aesthetics(fig)
     fig.update_traces(mode='markers+lines')
-    fig.update_xaxes(autorange=True)
-    fig.update_traces(line=dict(width=4),
-                      marker_line_color='rgb(105,105,105)',
-                      marker_line_width=1)
     write_images_from_dict({plot_prefix: fig})
     return
 
@@ -96,6 +93,7 @@ def main(time_table: str, figures_dir: str) -> None:
     data_df = pd.read_csv(time_table, sep=",", header=0)
     data_df["Time (s)"] = convert_hhmmss_to_float(data_df["Time (mm:ss)"])
     data_df = merge_graftm_resources(data_df)
+    data_df["Time (m)"] = data_df["Time (s)"] / 60
 
     # Remove DIAMOND samples
     data_df = data_df[data_df["Software"] != "DIAMOND"]
@@ -103,8 +101,6 @@ def main(time_table: str, figures_dir: str) -> None:
     ram_plot(data_df, figures_dir)
 
     time_plot(data_df, figures_dir)
-
-    parallel_plot(data_df, figures_dir)
 
     return
 
