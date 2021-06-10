@@ -97,7 +97,7 @@ def main(time_table: str, figures_dir: str, tables_dir: str) -> None:
 
     sum_df = data_df.groupby(["Software", "Threads", "Molecule"]).sum(numeric_only=True).reset_index()
     sum_df["chars/s"] = round(sum_df["Fasta.Length"] / sum_df["Time (s)"], 0)
-    sum_df.drop(labels=["Fasta.Length", "Time (s)"], axis=1, inplace=True)
+    sum_df.drop(labels=["Memory.Max (kbytes)", "Time (m)"], axis=1, inplace=True)
     sum_df.to_csv(os.path.join(tables_dir, "sum_runtimes.tsv"),
                   sep="\t", header=True, index=False, float_format='%.2e')
 
