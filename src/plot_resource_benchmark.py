@@ -89,11 +89,17 @@ def merge_graftm_resources(data_df: pd.DataFrame) -> pd.DataFrame:
     return data_df
 
 
-def main(time_table: str, figures_dir: str) -> None:
+def main(time_table: str, figures_dir: str, tables_dir: str) -> None:
     data_df = pd.read_csv(time_table, sep=",", header=0)
     data_df["Time (s)"] = convert_hhmmss_to_float(data_df["Time (mm:ss)"])
     data_df = merge_graftm_resources(data_df)
-    data_df["Time (m)"] = data_df["Time (s)"] / 60
+    data_df["Time (m)"] = round(data_df["Time (s)"] / 60, 2)
+
+    sum_df = data_df.groupby(["Software", "Threads", "Molecule"]).sum(numeric_only=True).reset_index()
+    sum_df["chars/s"] = round(sum_df["Fasta.Length"] / sum_df["Time (s)"], 0)
+    sum_df.drop(labels=["Fasta.Length", "Time (s)"], axis=1, inplace=True)
+    sum_df.to_csv(os.path.join(tables_dir, "sum_runtimes.tsv"),
+                  sep="\t", header=True, index=False, float_format='%.2e')
 
     # Remove DIAMOND samples
     data_df = data_df[data_df["Software"] != "DIAMOND"]
@@ -107,4 +113,5 @@ def main(time_table: str, figures_dir: str) -> None:
 
 if __name__ == '__main__':
     main(time_table="../manuscript/tables/runtime_log.csv",
-         figures_dir="../manuscript/figures/")
+         figures_dir="../manuscript/figures/",
+         tables_dir="../manuscript/tables/")
