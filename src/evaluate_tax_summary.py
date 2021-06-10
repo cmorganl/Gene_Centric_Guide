@@ -45,14 +45,18 @@ def mcc_line_plot(df: pd.DataFrame, output_dir: str) -> None:
     return
 
 
-def evaluate_taxonomic_summary_methods(analysis_dir: str, figures_dir: str) -> None:
+def evaluate_taxonomic_summary_methods(analysis_dir: str, figures_dir: str, tables_dir: str) -> None:
 
     data_df = load_mcc_tables(analysis_dir)
 
     mcc_line_plot(data_df, figures_dir)
 
+    data_df.to_csv(path_or_buf=os.path.join(tables_dir, "MCC_data.tsv"), sep="\t", index=False, header=True)
+
     return
 
 
 if __name__ == '__main__':
-    evaluate_taxonomic_summary_methods(analysis_dir="../tax_summary/", figures_dir="../manuscript/figures/")
+    evaluate_taxonomic_summary_methods(analysis_dir="../tax_summary/",
+                                       figures_dir="../manuscript/figures/",
+                                       tables_dir="../manuscript/tables/")
