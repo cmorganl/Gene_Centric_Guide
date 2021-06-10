@@ -33,12 +33,14 @@ def mcc_line_plot(df: pd.DataFrame, output_dir: str) -> None:
                        color_discrete_sequence=px.colors.qualitative.Set3,
                        labels=_LABEL_MAT,
                        range_y=[0.1, 0.95],
-                       title="TreeSAPP and GraftM classification performances using EggNOG prokaryotic sequences")
+                       title="TreeSAPP and GraftM classification performances<br>using EggNOG prokaryotic sequences")
     line_plt.update_traces(mode='markers+lines')
     line_plt.update_xaxes(autorange=True)
-    line_plt.update_traces(line=dict(width=4),
-                           marker_line_color='rgb(105,105,105)',
-                           marker_line_width=1)
+    line_plt.update_layout(legend=dict(itemsizing="constant"))
+    line_plt.update_traces(line=dict(width=12),
+                           marker=dict(size=12,
+                                       line=dict(width=2,
+                                                 color='DarkSlateGrey')))
     write_images_from_dict({plot_prefix: line_plt})
     return
 
