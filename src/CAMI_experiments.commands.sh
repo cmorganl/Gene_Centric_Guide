@@ -55,7 +55,7 @@ do
   fi
 
   assign_output=$analysis_dir/$( basename $f | sed 's/.fq.*//g' | sed 's/.fasta.*//g' )
-  if [ -d ${assign_output} ] && [ $overwrite == 'n' ]; then
+  if [ -f ${assign_output}/final_outputs/classifications.tsv ] && [ $overwrite == 'n' ]; then
     echo "Skipping classification of '${f}'"
   else
     treesapp assign \
@@ -72,11 +72,8 @@ done
 for f in ${analysis_refpkgs}/*pkl
 do
 	rp=$( basename $f | sed 's/_build.pkl//g' )
-	for d in "${outputs_array[@]}"
-	do
-	  treesapp phylotu \
-	  --refpkg_path $f \
-	  --assign_output $d \
-	  -o ${d}/phylotu_out_${rp}/
-	done
+	treesapp phylotu \
+	--refpkg_path $f \
+	--assign_output ${outputs_array[@]} \
+	-o ${analysis_dir}/phylotu_out_${rp}/
 done

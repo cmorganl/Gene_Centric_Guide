@@ -227,9 +227,6 @@ def merge_otu_matrices(refpkg_otu_matrices: dict, reset_otu_count=True) -> pd.Da
     for refpkg_name in refpkg_otu_matrices:
         # Combine the OTU matrices by columns to generate a single DataFrame
         result = refpkg_otu_matrices[refpkg_name].pop()  # type: pd.DataFrame
-        for otu_mat in refpkg_otu_matrices[refpkg_name]:
-            result = result.join(otu_mat.set_index(key_name), on=key_name)
-
         result["RefPkg"] = refpkg_name
 
         # Merge the combined data frame with pOTU counts for all samples
@@ -267,13 +264,17 @@ def get_potu_data(phylotu_outputs: list) -> (pd.DataFrame, pd.DataFrame):
         if not phylotu_exp.load_cluster_assignments():
             continue
         phylotu_exp.merge_query_clusters()
+        otu_mat = phylotu_exp.load_otu_matrix()
         try:
-            refpkg_otu_matrices[phylotu_exp.pkg_name].append(phylotu_exp.load_otu_matrix())
+            refpkg_otu_matrices[phylotu_exp.pkg_name].append(otu_mat)
         except KeyError:
-            refpkg_otu_matrices[phylotu_exp.pkg_name] = [phylotu_exp.load_otu_matrix()]
-        potu_count_ar.append(phylotu_exp.get_unique_potus())
-        samples_ar.append(phylotu_dir.split(os.sep)[-2])
-        refpkg_ar.append(phylotu_exp.pkg_name)
+            refpkg_otu_matrices[phylotu_exp.pkg_name] = [otu_mat]
+        for sid in otu_mat.columns:
+            if sid == "#OTU_ID":
+                continue
+            potu_count_ar.append(sum([1 for x in otu_mat[sid] if x > 1]))
+            samples_ar.append(sid)
+            refpkg_ar.append(phylotu_exp.pkg_name)
 
     merged_otu_df = merge_otu_matrices(refpkg_otu_matrices)
 
@@ -327,6 +328,7 @@ def plot_rainclouds(potu_df: pd.DataFrame, output_dir: str) -> None:
     ax = pt.RainCloud(x=dx, y=dy, data=potu_df, palette=pal,
                       bw=sigma, width_viol=.6, move=.2, ax=ax, orient="h")
     plt.savefig(fname=os.path.join(output_dir, "raining_pOTUs.png"))
+    plt.savefig(fname=os.path.join(output_dir, "raining_pOTUs.svg"))
     # TODO: add lines between reference package points
     return
 
@@ -343,7 +345,7 @@ def main(root_dir):
     sample_assigned_pqueries = {}
 
     # Count the number of pOTUs for each RefPkg in each output
-    potu_df, potu_mat = get_potu_data(glob.glob(data_dir + "*/phylotu_out_*"))
+    potu_df, potu_mat = get_potu_data(glob.glob(data_dir + "phylotu_out_*"))
     plot_phylotu_upset(potu_mat, fig_dir)
 
     # Read the assignments from each of the assign_outputs directories
@@ -353,6 +355,7 @@ def main(root_dir):
                                                                                                        assigner_cls=classy.TreeSAPP("cami"))})
 
     # Fetch the taxonomic lineages for the unique NCBI taxonomy IDs from the classified query sequences
+    print("Downloading lineage information")
     tax_lineage_map = retrieve_lineages(sample_assigned_pqueries, assign_outputs)
 
     # Calculate the taxonomic distances by RefPkg and output, return a pandas dataframe
