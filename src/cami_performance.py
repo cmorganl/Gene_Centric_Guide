@@ -21,14 +21,7 @@ from treesapp import refpkg as ts_refpkg
 from treesapp import lca_calculations as ts_lca
 from evaluate_clusters import ClusterExperiment
 
-_LABEL_MAT = {"Length": "Query sequence length",
-              "Completeness": "Cluster completeness score",
-              "Accuracy": "Cluster accuracy",
-              "RefPkg": "Reference package",
-              "Resolution": "Cluster resolution",
-              "Clustering": "Clustering method",
-              "TaxDist": "Taxonomic distance",
-              "Size": "Number of queries"}
+from category_maps import _LABEL_MAT, _ASM_PAL
 
 
 def generate_entrez_queries(taxids) -> list:
@@ -172,8 +165,6 @@ def generate_plotly_bubble_size_legend(data: list) -> go.Figure:
 
 
 def plot_taxonomic_distance_bubbles(tax_dist_dat: pd.DataFrame, output_dir: str) -> None:
-    palette = px.colors.qualitative.Antique
-
     # Filter to remove RefPkgs with fewer than 100 observations
     plt_dat = tax_dist_dat[tax_dist_dat["Size"] >= 100].groupby(["RefPkg", "Sample"]).mean().reset_index()
 
@@ -184,7 +175,7 @@ def plot_taxonomic_distance_bubbles(tax_dist_dat: pd.DataFrame, output_dir: str)
     bubble_plt = px.scatter(plt_dat,
                             x="RefPkg", y="TaxDist", color="Sample", size="Size",
                             size_max=20,
-                            color_discrete_sequence=palette,
+                            color_discrete_sequence=_ASM_PAL,
                             labels=_LABEL_MAT,
                             title="")
     bubble_plt.update_traces(marker=dict(line=dict(width=2,

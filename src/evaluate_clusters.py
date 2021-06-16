@@ -13,33 +13,16 @@ import treesapp as ts
 import plotly.express as px
 import plotly.graph_objects as go
 import plotly.io as pio
-from bokeh import palettes
 from tqdm import tqdm
 from sklearn import metrics
 from scipy.signal import savgol_filter
 from scipy.stats import f_oneway, normaltest, ttest_ind
 import statsmodels.api as sm
 
+from category_maps import _LABEL_MAT, _REFPKGS, _CATEGORIES, _REFPKG_PALETTE_MAP, _RANK_PALETTE_MAP
+
 pio.templates.default = "plotly_white"
 _REFPKG_DIR = "clustering_refpkgs"
-_LABEL_MAT = {"Length": "Protein length percentage",
-              "Completeness": "Cluster completeness score",
-              "Accuracy": "Cluster accuracy",
-              "RefPkg": "Reference package",
-              "Resolution": "Cluster resolution",
-              "Clustering": "Clustering method",
-              "Spline": "Cluster accuracy",
-              "WTD": "Taxonomic Distinctness"}
-_RANKS = ['root', 'domain', 'phylum', 'class', 'order', 'family', 'genus', 'species']
-_REFPKGS = ["RecA", "RpoB", "PF01655", "NifH", "SoxY", "McrA"]
-_CATEGORIES = {"Clustering": ["de_novo-aln", "de_novo-psc", "ref_guided"],
-               "RefPkg": _REFPKGS,
-               "Rank": _RANKS,
-               "Resolution": _RANKS}
-_RANK_PAL = palettes.linear_palette(px.colors.diverging.PuOr, len(_RANKS))
-_RANK_PALETTE_MAP = {_RANKS[i]: _RANK_PAL[i] for i in range(0, len(_RANKS))}
-_REFPKG_PAL = px.colors.qualitative.Safe
-_REFPKG_PALETTE_MAP = {_REFPKGS[i]: _REFPKG_PAL[i] for i in range(0, len(_REFPKGS))}
 
 
 class ClusterExperiment:
@@ -476,7 +459,7 @@ def prepare_relationships_dataframe(cluster_experiments: list) -> pd.DataFrame:
 def write_images_from_dict(fig_path_map: dict, fig_scale=4.0) -> None:
     for prefix, fig in fig_path_map.items():
         fig.write_image(prefix + ".png", engine="kaleido", scale=fig_scale)
-        fig.update_layout(title="").write_image(prefix + ".pdf", engine="kaleido", scale=fig_scale)
+        fig.update_layout(title="").write_image(prefix + ".pdf", engine="kaleido", scale=fig_scale, validate=True)
     return
 
 

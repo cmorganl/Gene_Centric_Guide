@@ -8,11 +8,7 @@ import plotly.express as px
 import plotly.graph_objs as go
 
 from evaluate_clusters import write_images_from_dict
-
-_LABEL_MAT = {"Fasta.Length": "Query size (aa/bp)",
-              "Memory.Max (kbytes)": "Maximum memory (kbytes)"}
-_CATEGORIES = {"Software": ["GraftM", "DIAMOND", "TreeSAPP", "TreeSAPP-aELW", "TreeSAPP-Max(LWR)"],
-               "Molecule": ["nuc", "aa"]}
+from category_maps import _METHODS_PALETTE_MAP, _CATEGORIES, _LABEL_MAT
 
 
 def update_figure_aesthetics(fig: go.Figure) -> None:
@@ -29,12 +25,13 @@ def ram_plot(df: pd.DataFrame, output_dir: str) -> None:
     group = ["Software", "Fasta.Length", "Molecule"]
     plot_prefix = os.path.join(output_dir, "RAM_line")
     mem_df = df.groupby(group).max(numeric_only=True)["Memory.Max (kbytes)"].reset_index()
-    mem_df["Memory.Max (kbytes)"] = savgol_filter(mem_df["Memory.Max (kbytes)"],
-                                                  window_length=55, polyorder=5)
+    mem_df["Memory.Max (Mb)"] = mem_df["Memory.Max (kbytes)"]/1000
+    mem_df["Memory.Max (Mb)"] = savgol_filter(mem_df["Memory.Max (Mb)"],
+                                              window_length=55, polyorder=5)
     fig = px.line(mem_df,
-                  x="Fasta.Length", y="Memory.Max (kbytes)",
+                  x="Fasta.Length", y="Memory.Max (Mb)",
                   color="Software", line_group="Software",
-                  color_discrete_sequence=px.colors.qualitative.Set3,
+                  color_discrete_map=_METHODS_PALETTE_MAP,
                   facet_col="Molecule",
                   line_shape="spline",
                   category_orders=_CATEGORIES,
@@ -52,7 +49,7 @@ def time_plot(df: pd.DataFrame, output_dir: str) -> None:
                   color="Software", line_group="Software",
                   facet_col="Molecule",
                   facet_row="Threads",
-                  color_discrete_sequence=px.colors.qualitative.Set3,
+                  color_discrete_map=_METHODS_PALETTE_MAP,
                   category_orders=_CATEGORIES,
                   labels=_LABEL_MAT,
                   render_mode="svg")
