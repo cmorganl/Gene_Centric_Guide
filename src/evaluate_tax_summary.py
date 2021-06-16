@@ -18,6 +18,11 @@ pio.templates.default = "plotly_white"
 pd.set_option('max_columns', 10)
 pd.set_option('max_rows', 100)
 
+_OUTPUT_EXP_MAP = {"MCC_graftm_0.13.0_prok": "GraftM",
+                   "MCC_treesapp_0.11.2_aelw_prok": "TreeSAPP-aELW",
+                   "MCC_treesapp_0.11.2_LCA_prok": "TreeSAPP-LCA",
+                   "MCC_treesapp_0.11.2_maxLWR_prok": "TreeSAPP-LM"}
+
 
 def load_table_files_to_dataframe(sample_table_paths: dict, value_index="Method") -> pd.DataFrame:
     data_tables = []
@@ -30,22 +35,20 @@ def load_table_files_to_dataframe(sample_table_paths: dict, value_index="Method"
 
 def load_mcc_tables(analysis_dir: str) -> pd.DataFrame:
     tbl_name = "prokaryotic_e5.proteomes_MCC_table.tsv"
-    output_dirs = {"MCC_graftm_0.13.0_prok": "GraftM",
-                   "MCC_treesapp_0.11.2_aelw_prok": "TreeSAPP-aELW",
-                   "MCC_treesapp_0.11.2_maxLWR_prok": "TreeSAPP-Max(LWR)"}
+    output_dirs = list(_OUTPUT_EXP_MAP.keys())
     table_paths = {}
     for dir_name in output_dirs:
-        table_paths[os.path.join(analysis_dir, dir_name, tbl_name)] = output_dirs[dir_name]
+        table_paths[os.path.join(analysis_dir, dir_name, tbl_name)] = _OUTPUT_EXP_MAP[dir_name]
     return load_table_files_to_dataframe(table_paths)
 
 
 def load_classification_tables(analysis_dir: str) -> pd.DataFrame:
     tbl_name = "prokaryotic_e5.proteomes_classifications.tsv"
-    output_dirs = {"MCC_treesapp_0.11.2_aelw_prok": "TreeSAPP-aELW",
-                   "MCC_treesapp_0.11.2_maxLWR_prok": "TreeSAPP-Max(LWR)"}
+    output_dirs = ["MCC_treesapp_0.11.2_aelw_prok",
+                   "MCC_treesapp_0.11.2_maxLWR_prok"]
     table_paths = {}
     for dir_name in output_dirs:
-        table_paths[os.path.join(analysis_dir, dir_name, tbl_name)] = output_dirs[dir_name]
+        table_paths[os.path.join(analysis_dir, dir_name, tbl_name)] = _OUTPUT_EXP_MAP[dir_name]
     return load_table_files_to_dataframe(table_paths)
 
 
@@ -146,7 +149,7 @@ def evo_dist_plot(df: pd.DataFrame, output_dir: str) -> None:
 
 
 def summarise_jplace_placements(analysis_dir: str, tables_dir: str):
-    output_dirs = {"MCC_treesapp_0.11.2_aelw_prok": "TreeSAPP-aELW"}
+    output_dirs = ["MCC_treesapp_0.11.2_aelw_prok"]
     pplace_dat = {"RefPkg": [],
                   "Placements": [],
                   "LWR": []}
