@@ -12,7 +12,7 @@ from sklearn import linear_model as lm
 
 from treesapp import jplace_utils
 from evaluate_clusters import write_images_from_dict
-from category_maps import _METHODS_PALETTE_MAP, _LABEL_MAT
+from category_maps import _METHODS_PALETTE_MAP, _LABEL_MAT, _CATEGORIES
 
 pio.templates.default = "plotly_white"
 pd.set_option('max_columns', 10)
@@ -55,6 +55,7 @@ def mcc_line_plot(df: pd.DataFrame, output_dir: str) -> None:
                        x="Tax.dist", y="MCC",
                        color="Method", line_group="Method",
                        color_discrete_map=_METHODS_PALETTE_MAP,
+                       category_orders=_CATEGORIES,
                        labels=_LABEL_MAT,
                        range_y=[0.1, 0.95],
                        title="TreeSAPP and GraftM classification performances<br>using EggNOG prokaryotic sequences")
@@ -119,13 +120,28 @@ def evo_dist_plot(df: pd.DataFrame, output_dir: str) -> None:
                           x='prediction', y='residual',
                           marginal_y='violin',
                           color_discrete_map=_METHODS_PALETTE_MAP,
+                          category_orders=_CATEGORIES,
                           labels=_LABEL_MAT,
                           color='Method', trendline='ols')
-    # res_viol.show()
+
+    boxes = px.box(df,
+                   x="RefPkg", y="TaxDist",
+                   color="Method", category_orders=_CATEGORIES,
+                   labels=_LABEL_MAT, color_discrete_map=_METHODS_PALETTE_MAP,
+                   points='outliers', boxmode="group")
+    boxes.update_xaxes(categoryorder='category ascending',
+                       tickangle=45,
+                       title_font=None,
+                       tickfont_size=6,
+                       title_standoff=10)
+    boxes.update_traces(marker_line_color='rgb(105,105,105)',
+                        marker_line_width=0.5,
+                        marker_size=3, selector=dict(type='box'))
 
     reg_prefix = os.path.join(output_dir, "evo_tax_corr")
     res_prefix = os.path.join(output_dir, "residuals")
-    write_images_from_dict({reg_prefix: fig, res_prefix: res_viol})
+    box_prefix = os.path.join(output_dir, "tax_summary_dist_boxes")
+    write_images_from_dict({reg_prefix: fig, res_prefix: res_viol, box_prefix: boxes}, fig_scale=2)
     return
 
 
