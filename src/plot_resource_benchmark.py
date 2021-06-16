@@ -3,11 +3,13 @@
 import os
 
 import pandas as pd
+import numpy as np
 from scipy.signal import savgol_filter
 import plotly.express as px
 import plotly.graph_objs as go
 
 from evaluate_clusters import write_images_from_dict
+from evaluate_tax_summary import fit_line
 from category_maps import _METHODS_PALETTE_MAP, _CATEGORIES, _LABEL_MAT
 
 
@@ -25,7 +27,7 @@ def ram_plot(df: pd.DataFrame, output_dir: str) -> None:
     group = ["Software", "Fasta.Length", "Molecule"]
     plot_prefix = os.path.join(output_dir, "RAM_line")
     mem_df = df.groupby(group).max(numeric_only=True)["Memory.Max (kbytes)"].reset_index()
-    mem_df["Memory.Max (Mb)"] = mem_df["Memory.Max (kbytes)"]/1000
+    mem_df["Memory.Max (Mb)"] = mem_df["Memory.Max (kbytes)"] / 1000
     mem_df["Memory.Max (Mb)"] = savgol_filter(mem_df["Memory.Max (Mb)"],
                                               window_length=55, polyorder=5)
     fig = px.line(mem_df,
@@ -44,8 +46,30 @@ def ram_plot(df: pd.DataFrame, output_dir: str) -> None:
 
 def time_plot(df: pd.DataFrame, output_dir: str) -> None:
     plot_prefix = os.path.join(output_dir, "compute_time")
+    df["Mb"] = df["Fasta.Length"] / 1E6
+    old_df = df[df.Software == "TreeSAPP v0.6.8"]
+    new_df = df[df.Software != "TreeSAPP v0.6.8"]
+    norm_dat = {"Software": [],
+                "Molecule": [],
+                "Threads": [],
+                "Mb": [],
+                "Time (m)": []}
+    # Use linear regression to model the old TreeSAPP's runtimes
+    for mol_group in ["aa", "nuc"]:
+        group_df = old_df[old_df["Molecule"] == mol_group]
+        n_obs = 10
+        x, y, _y_pred, _res = fit_line(x_train=np.array(group_df.Mb),
+                                       y_train=group_df["Time (m)"],
+                                       num=n_obs)
+        norm_dat["Software"] += ["TreeSAPP v0.6.8"] * n_obs
+        norm_dat["Molecule"] += [mol_group] * n_obs
+        norm_dat["Threads"] += [4] * n_obs
+        norm_dat["Mb"] += list(x)
+        norm_dat["Time (m)"] += list(y)
+
+    df = pd.concat([new_df, pd.DataFrame(norm_dat)])
     fig = px.line(df,
-                  x="Fasta.Length", y="Time (m)",
+                  x="Mb", y="Time (m)",
                   color="Software", line_group="Software",
                   facet_col="Molecule",
                   facet_row="Threads",
@@ -53,7 +77,6 @@ def time_plot(df: pd.DataFrame, output_dir: str) -> None:
                   category_orders=_CATEGORIES,
                   labels=_LABEL_MAT,
                   render_mode="svg")
-
     update_figure_aesthetics(fig)
     fig.update_traces(mode='markers+lines')
     write_images_from_dict({plot_prefix: fig})

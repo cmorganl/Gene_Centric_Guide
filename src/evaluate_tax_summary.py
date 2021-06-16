@@ -70,11 +70,11 @@ def mcc_line_plot(df: pd.DataFrame, output_dir: str) -> None:
     return
 
 
-def fit_line(x_train: np.array, y_train: np.array):
+def fit_line(x_train: np.array, y_train: np.array, num=100):
     model = lm.LinearRegression()
     model.fit(X=x_train.reshape(-1, 1),
               y=y_train)
-    x_range = np.linspace(start=x_train.min(), stop=x_train.max(), num=100)
+    x_range = np.linspace(start=x_train.min(), stop=x_train.max(), num=num)
     y_range = model.predict(x_range.reshape(-1, 1))
     y_pred = model.predict(x_train.reshape(-1, 1))
     residuals = y_pred - y_train
