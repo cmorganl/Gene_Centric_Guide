@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import os
+import glob
 
 import pandas as pd
 import plotly.io as pio
@@ -9,11 +10,13 @@ import plotly.graph_objs as go
 import numpy as np
 from sklearn import linear_model as lm
 
+from treesapp import jplace_utils
 from evaluate_clusters import write_images_from_dict
 from category_maps import _METHODS_PALETTE_MAP, _LABEL_MAT
 
 pio.templates.default = "plotly_white"
 pd.set_option('max_columns', 10)
+pd.set_option('max_rows', 100)
 
 
 def load_table_files_to_dataframe(sample_table_paths: dict, value_index="Method") -> pd.DataFrame:
@@ -81,7 +84,7 @@ def evo_dist_plot(df: pd.DataFrame, output_dir: str) -> None:
     # How well do the two methods handle large evolutionary distances?
     # Is taxonomic distance driven by evolutionary distance?
     fig = go.Figure(layout_xaxis_range=[0, 8])
-    residual_dict = {"method": [],
+    residual_dict = {"Method": [],
                      "prediction": [],
                      "residual": [],
                      "x": []}
@@ -92,7 +95,7 @@ def evo_dist_plot(df: pd.DataFrame, output_dir: str) -> None:
         residual_dict["prediction"] += list(preds)
         residual_dict["residual"] += list(res)
         residual_dict["x"] += list(np.array(sub_df.EvoDist))
-        residual_dict["Method"] += [group]*len(sub_df)
+        residual_dict["Method"] += [group] * len(sub_df)
         if i == 1:
             side = 'positive'
         else:
@@ -118,7 +121,7 @@ def evo_dist_plot(df: pd.DataFrame, output_dir: str) -> None:
                           color_discrete_map=_METHODS_PALETTE_MAP,
                           labels=_LABEL_MAT,
                           color='Method', trendline='ols')
-    res_viol.show()
+    # res_viol.show()
 
     reg_prefix = os.path.join(output_dir, "evo_tax_corr")
     res_prefix = os.path.join(output_dir, "residuals")
@@ -126,7 +129,34 @@ def evo_dist_plot(df: pd.DataFrame, output_dir: str) -> None:
     return
 
 
+def summarise_jplace_placements(analysis_dir: str, tables_dir: str):
+    output_dirs = {"MCC_treesapp_0.11.2_aelw_prok": "TreeSAPP-aELW"}
+    pplace_dat = {"RefPkg": [],
+                  "Placements": [],
+                  "LWR": []}
+
+    for dir_name in output_dirs:
+        pplace_dir = os.path.join(analysis_dir, dir_name, "TreeSAPP_output", "intermediates", "place")
+        for jplace in glob.glob(pplace_dir + os.sep + "*jplace"):
+            place_dat = jplace_utils.jplace_parser(jplace)
+            pqueries = jplace_utils.demultiplex_pqueries(place_dat)
+            for pquery in pqueries:
+                for pplace in pquery.placements:
+                    pplace_dat["RefPkg"].append(pquery.ref_name)
+                    pplace_dat["Placements"].append(len(pquery.placements))
+                    pplace_dat["LWR"].append(pplace.like_weight_ratio)
+    df = pd.DataFrame(pplace_dat)
+    df_perc = df.groupby("RefPkg").quantile([.25, .5, .75]).reset_index().rename(columns={'level_1': "Percentile"})
+    df_perc.to_csv(os.path.join(tables_dir,
+                                "placements_summary.csv"),
+                   index=False,
+                   mode='w')
+    return
+
+
 def evaluate_taxonomic_summary_methods(analysis_dir: str, figures_dir: str, tables_dir: str) -> None:
+    summarise_jplace_placements(analysis_dir, tables_dir)
+
     mcc_df = load_mcc_tables(analysis_dir)
     mcc_line_plot(mcc_df, figures_dir)
 
