@@ -17,6 +17,7 @@ from category_maps import _METHODS_PALETTE_MAP, _LABEL_MAT, _CATEGORIES
 pio.templates.default = "plotly_white"
 pd.set_option('max_columns', 10)
 pd.set_option('max_rows', 100)
+pd.set_option('display.width', 120)
 
 _OUTPUT_EXP_MAP = {"MCC_graftm_0.13.0_prok": "GraftM",
                    "MCC_treesapp_0.11.2_aelw_prok": "TreeSAPP-aELW",
@@ -40,6 +41,16 @@ def load_mcc_tables(analysis_dir: str) -> pd.DataFrame:
     for dir_name in output_dirs:
         table_paths[os.path.join(analysis_dir, dir_name, tbl_name)] = _OUTPUT_EXP_MAP[dir_name]
     return load_table_files_to_dataframe(table_paths)
+
+
+def summarise_classification_performance(df: pd.DataFrame, output_dir: str) -> None:
+    sig_digs = 4
+    df["FPR"] = round(df["False.Pos"] / (df["False.Pos"] + df["True.Neg"]), sig_digs)
+    df["FDR"] = round(df["False.Pos"] / (df["False.Pos"] + df["True.Pos"]), sig_digs)
+    df["PPV"] = round(df["True.Pos"] / (df["True.Pos"] + df["False.Pos"]), sig_digs)
+    # df["NPV"] = df["True.Neg"] / (df["True.Neg"] + df["False.Neg"])
+    df.to_csv(path_or_buf=os.path.join(output_dir, "MCC_data.tsv"), sep="\t", index=False, header=True)
+    return
 
 
 def load_classification_tables(analysis_dir: str) -> pd.DataFrame:
@@ -177,12 +188,12 @@ def evaluate_taxonomic_summary_methods(analysis_dir: str, figures_dir: str, tabl
     summarise_jplace_placements(analysis_dir, tables_dir)
 
     mcc_df = load_mcc_tables(analysis_dir)
+    summarise_classification_performance(mcc_df, tables_dir)
+
     mcc_line_plot(mcc_df, figures_dir)
 
     pquery_df = load_classification_tables(analysis_dir).dropna(axis=0)
     evo_dist_plot(pquery_df, figures_dir)
-
-    mcc_df.to_csv(path_or_buf=os.path.join(tables_dir, "MCC_data.tsv"), sep="\t", index=False, header=True)
 
     return
 
