@@ -174,9 +174,11 @@ def summarise_jplace_placements(analysis_dir: str, tables_dir: str):
                 for pplace in pquery.placements:
                     pplace_dat["RefPkg"].append(pquery.ref_name)
                     pplace_dat["Placements"].append(len(pquery.placements))
-                    pplace_dat["LWR"].append(pplace.like_weight_ratio)
+                    pplace_dat["LWR"].append(-1*float(pplace.like_weight_ratio))
     df = pd.DataFrame(pplace_dat)
-    df_perc = df.groupby("RefPkg").quantile([.25, .5, .75]).reset_index().rename(columns={'level_1': "Percentile"})
+    df_perc = df.groupby("RefPkg").quantile([.25, .5, .75]).reset_index()
+    df_perc["LWR"] = df_perc["LWR"]*-1
+    df_perc.rename(columns={'level_1': "Percentile"})
     df_perc.to_csv(os.path.join(tables_dir,
                                 "placements_summary.csv"),
                    index=False,
