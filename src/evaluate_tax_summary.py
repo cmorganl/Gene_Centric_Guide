@@ -9,6 +9,7 @@ import plotly.express as px
 import plotly.graph_objs as go
 import numpy as np
 from sklearn import linear_model as lm
+from sklearn.metrics import mean_squared_error
 
 from treesapp import jplace_utils
 from evaluate_clusters import write_images_from_dict
@@ -53,10 +54,8 @@ def summarise_classification_performance(df: pd.DataFrame, output_dir: str) -> N
     return
 
 
-def load_classification_tables(analysis_dir: str) -> pd.DataFrame:
+def load_classification_tables(analysis_dir: str, output_dirs: list) -> pd.DataFrame:
     tbl_name = "prokaryotic_e5.proteomes_classifications.tsv"
-    output_dirs = ["MCC_treesapp_0.11.2_aelw_prok",
-                   "MCC_treesapp_0.11.2_maxLWR_prok"]
     table_paths = {}
     for dir_name in output_dirs:
         table_paths[os.path.join(analysis_dir, dir_name, tbl_name)] = _OUTPUT_EXP_MAP[dir_name]
@@ -93,6 +92,34 @@ def fit_line(x_train: np.array, y_train: np.array, num=100):
     y_pred = model.predict(x_train.reshape(-1, 1))
     residuals = y_pred - y_train
     return x_range, y_range, y_pred, residuals
+
+
+def generate_rmse_dataframe(df: pd.DataFrame, group_var: str, rep_var: str, value_var: str) -> pd.DataFrame:
+    rmse_dat = {"Method": [],
+                "RMSE": []}
+    for group in pd.unique(df[group_var]):
+        group_df = df[df[group_var] == group]
+
+        for rep_name in pd.unique(group_df[rep_var]):
+            rep_df = group_df[group_df[rep_var] == rep_name]
+            rmse_dat["Method"].append(group)
+            preds = rep_df[value_var]
+            rmse_dat["RMSE"].append(mean_squared_error(y_true=[0]*len(preds), y_pred=preds, squared=False))
+
+    return pd.DataFrame(rmse_dat)
+
+
+def rmse_bar_plot(df: pd.DataFrame, output_dir: str) -> None:
+    rmse_df = generate_rmse_dataframe(df, group_var="Method", rep_var="TrueLineage", value_var="TaxDist")
+    fig = px.bar(rmse_df.groupby("Method").agg({"RMSE": ['mean', 'std']})["RMSE"].reset_index(),
+                 x="Method", y="mean", error_y="std",
+                 color="Method",
+                 labels={"mean": "RMSE"},
+                 category_orders=_CATEGORIES,
+                 color_discrete_map=_METHODS_PALETTE_MAP)
+    bar_prefix = os.path.join(output_dir, "tax_dist_rmse")
+    write_images_from_dict({bar_prefix: fig}, fig_scale=2)
+    return
 
 
 def evo_dist_plot(df: pd.DataFrame, output_dir: str) -> None:
@@ -177,7 +204,8 @@ def summarise_jplace_placements(analysis_dir: str, tables_dir: str):
                     pplace_dat["LWR"].append(-1*float(pplace.like_weight_ratio))
     df = pd.DataFrame(pplace_dat)
     df_perc = df.groupby("RefPkg").quantile([.25, .5, .75]).reset_index()
-    df_perc["LWR"] = df_perc["LWR"]*-1
+    df_perc["LWR"] = round(df_perc["LWR"]*-1, 2)
+    df_perc["Placements"] = df_perc["Placements"].astype(int)
     df_perc.rename(columns={'level_1': "Percentile"})
     df_perc.to_csv(os.path.join(tables_dir,
                                 "placements_summary.csv"),
@@ -194,7 +222,14 @@ def evaluate_taxonomic_summary_methods(analysis_dir: str, figures_dir: str, tabl
 
     mcc_line_plot(mcc_df, figures_dir)
 
-    pquery_df = load_classification_tables(analysis_dir).dropna(axis=0)
+    pquery_df = load_classification_tables(analysis_dir, output_dirs=["MCC_treesapp_0.11.2_aelw_prok",
+                                                                      "MCC_treesapp_0.11.2_maxLWR_prok",
+                                                                      "MCC_treesapp_0.11.2_LCA_prok"]).dropna(axis=0)
+    rmse_bar_plot(pquery_df, figures_dir)
+
+    pquery_df = load_classification_tables(analysis_dir, output_dirs=["MCC_treesapp_0.11.2_aelw_prok",
+                                                                      "MCC_treesapp_0.11.2_maxLWR_prok"]).dropna(axis=0)
+    rmse_bar_plot(pquery_df, figures_dir)
     evo_dist_plot(pquery_df, figures_dir)
 
     return
