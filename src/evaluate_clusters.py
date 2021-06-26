@@ -41,7 +41,9 @@ class ClusterExperiment:
         self.pkg_name = None
         self.ref_pkg = ts.refpkg.ReferencePackage()
         self.cluster_assignments = {}
-        self.cluster_members = {}
+        self.cluster_members = {}  # Maps cluster IDs to query sequence names
+        self.cluster_tax_distinctnesses = {}  # Maps cluster IDs to their taxonomic distinctness values
+        self.repr_taxon_clusters = {}
         self.phylo_place_map = {}
         self.entrez_query_dict = {}
         self.query_taxon_map = {}
@@ -50,7 +52,9 @@ class ClusterExperiment:
         return
 
     def __str__(self):
-        return "'{}' ClusterExperiment at resolution '{}'".format(self.pkg_name, self.cluster_resolution)
+        return "'{}' clustered using '{}' method at '{}' resolution".format(self.pkg_name,
+                                                                            self.cluster_mode,
+                                                                            self.cluster_resolution)
 
     def test_files(self) -> bool:
         if not os.path.exists(self.pquery_assignments_file):
@@ -155,6 +159,11 @@ class ClusterExperiment:
         return
 
     def taxonomically_resolve_clusters(self) -> dict:
+        """
+        Matches taxa to a list of all clusters they were assigned to. Example returned dictionary:
+          {'Magnetococcaceae': ['788', '788', '788', '788', '789'],
+          'Sulfuricellaceae': ['497', '497', '497', '497', '497']}
+        """
         taxon_cluster_ids = {}
         rank_depth = self.ref_pkg.taxa_trie.accepted_ranks_depths[self.cluster_resolution]
         parent_rank = get_key(self.ref_pkg.taxa_trie.accepted_ranks_depths, rank_depth - 1)
@@ -187,22 +196,22 @@ class ClusterExperiment:
         else:
             return taxon_resolved.name
 
-    @staticmethod
-    def generate_true_cluster_labels(cluster_ids: list) -> list:
-        cluster_counts = Counter(cluster_ids).most_common()
-        consensus_cluster = cluster_counts[0][0]
-        return [consensus_cluster] * len(cluster_ids)
+    def generate_true_cluster_labels(self, cluster_ids: list, taxon="") -> list:
+        if taxon in self.repr_taxon_clusters:
+            return [self.repr_taxon_clusters[taxon]] * len(cluster_ids)
+        else:
+            cluster_counts = Counter(cluster_ids).most_common()
+            consensus_cluster = cluster_counts[0][0]
+            return [consensus_cluster] * len(cluster_ids)
 
-    @staticmethod
-    def report_query_completeness(cluster_assignments: list) -> float:
-        true_labels = ClusterExperiment.generate_true_cluster_labels(cluster_assignments)
+    def report_query_completeness(self, cluster_assignments: list) -> float:
+        true_labels = self.generate_true_cluster_labels(cluster_assignments)
         return round(metrics.completeness_score(labels_true=true_labels, labels_pred=cluster_assignments), 3)
 
-    @staticmethod
-    def find_clustering_accuracy(taxon_cluster_ids: list) -> float:
-        true_labels = ClusterExperiment.generate_true_cluster_labels(taxon_cluster_ids)
+    def find_clustering_accuracy(self, taxon_cluster_ids: list, taxon="") -> (float, float, float):
+        true_labels = self.generate_true_cluster_labels(taxon_cluster_ids, taxon=taxon)
         h, c, v = metrics.homogeneity_completeness_v_measure(labels_true=true_labels, labels_pred=taxon_cluster_ids)
-        return round(v, 3)
+        return round(h, 3), round(c, 3), round(v, 3)
 
     def generate_entrez_queries(self) -> None:
         header_registry = ts.fasta.register_headers(list(self.cluster_assignments.keys()))
@@ -225,6 +234,33 @@ class ClusterExperiment:
                 except KeyError:
                     self.cluster_members[cluster_num] = set([query])
         return
+
+    def calculate_cluster_taxonomic_distinctness(self):
+        for cluster_num, qseq_names in self.cluster_members.items():
+            taxa = {m: self.query_taxon_map[m] for m in qseq_names}
+            self.cluster_tax_distinctnesses[cluster_num] = ts.lca_calculations.taxonomic_distinctness(taxa,
+                                                                                                      rank=self.cluster_resolution,
+                                                                                                      rank_depths=self.ref_pkg.taxa_trie.accepted_ranks_depths)
+        return
+
+    def match_taxa_to_representative_clusters(self) -> list:
+        """Finds the largest homogenous cluster for each taxon and sets that as the representative."""
+        nomads = []
+        for taxon, clusters in self.taxonomically_resolve_clusters().items():
+            pure_clusters = [cluster_num for cluster_num in set(clusters) if
+                             self.cluster_tax_distinctnesses[cluster_num] == 0.0]
+            cluster_sizes = [len(self.cluster_members[cluster_num]) for cluster_num in pure_clusters]
+            try:
+                self.repr_taxon_clusters[taxon] = pure_clusters[cluster_sizes.index(max(cluster_sizes))]
+            except ValueError:
+                if len(pure_clusters) == 0:
+                    nomads.append(taxon)
+                else:
+                    sys.exit("ERROR: Undefined behaviour when finding representative clusters for taxa.\n"
+                             "Taxon: {}"
+                             "Clusters: {}"
+                             "Pure cluster sizes: {}".format(taxon, clusters, cluster_sizes))
+        return nomads
 
 
 def retrieve_lineages(cluster_experiments) -> dict:
@@ -269,6 +305,21 @@ def map_queries_to_taxa(cluster_experiments: list, accession_taxon_map: dict) ->
     return
 
 
+def load_cluster_members(cluster_experiments: list) -> None:
+    clusterless = []
+    p_bar = tqdm(total=len(cluster_experiments), ncols=100, desc="Populating cluster memberships")
+    for phylotu_exp in cluster_experiments:  # type: ClusterExperiment
+        phylotu_exp.load_cluster_members()
+        phylotu_exp.calculate_cluster_taxonomic_distinctness()
+        clusterless += phylotu_exp.match_taxa_to_representative_clusters()
+        phylotu_exp.ref_pkg.taxa_trie.validate_rank_prefixes()
+        p_bar.update()
+    p_bar.close()
+
+    print("{} unique taxa without representative clusters.".format(len(set(clusterless))))
+    return
+
+
 def filter_incomplete_lineages(cluster_experiments: list) -> None:
     removed = set()
     for phylotu_exp in cluster_experiments:  # type: ClusterExperiment
@@ -287,6 +338,22 @@ def filter_incomplete_lineages(cluster_experiments: list) -> None:
             except KeyError:
                 pass
     print("Removed {} query sequences with incomplete or missing lineages".format(len(removed)))
+    return
+
+
+def filter_experiments(cluster_experiments, filter_specs: dict) -> None:
+    for var, vals in filter_specs.items():
+        i = 0
+        rm = 0
+        while i < len(cluster_experiments):
+            phylotu_exp = cluster_experiments[i]  # type: ClusterExperiment
+            if phylotu_exp.__dict__[var] in vals:
+                cluster_experiments.pop(i)
+                rm += 1
+            else:
+                i += 1
+        if rm:
+            print("Removed {} datasets with {} in {}.".format(rm, var, vals))
     return
 
 
@@ -313,6 +380,7 @@ def get_key(a_dict: dict, val):
 
 
 def prepare_clustering_cohesion_dataframe(cluster_experiments: list) -> pd.DataFrame:
+    """Cohesiveness of clusters for each sliced sequence at each length."""
     ref_pkgs = []
     resolutions = []
     lengths = []
@@ -337,25 +405,26 @@ def prepare_clustering_accuracy_dataframe(cluster_experiments: list) -> pd.DataF
     re_map = {}
 
     # data arrays
-    refpkgs = []
-    lengths = []
-    clusters = []
-    resos = []
-    taxa = []
-    accurs = []
+    data_dict = {"RefPkg": [], "Length": [], "Clustering": [],
+                 "Resolution": [], "Taxon": [],
+                 "Accuracy": [], "Completeness": [], "Heterogeneity": []}
     p_bar = tqdm(total=len(cluster_experiments), ncols=100, desc="Preparing cluster accuracy dataframe")
     for phylotu_exp in cluster_experiments:  # type: ClusterExperiment
         if phylotu_exp.cluster_resolution not in re_map:
             re_map[phylotu_exp.cluster_resolution] = {}
         taxon_cluster_ids = phylotu_exp.taxonomically_resolve_clusters()
         re_map[phylotu_exp.cluster_resolution].update(phylotu_exp.renamed_taxa)
-        for taxon in taxon_cluster_ids:  # type: str
-            refpkgs.append(phylotu_exp.pkg_name)
-            lengths.append(phylotu_exp.seq_length)
-            clusters.append(phylotu_exp.cluster_mode)
-            resos.append(phylotu_exp.cluster_resolution)
-            taxa.append(taxon)
-            accurs.append(phylotu_exp.find_clustering_accuracy(taxon_cluster_ids[taxon]))
+        for taxon, clusters in taxon_cluster_ids.items():  # type: (str, list)
+            data_dict["RefPkg"].append(phylotu_exp.pkg_name)
+            data_dict["Length"].append(phylotu_exp.seq_length)
+            data_dict["Clustering"].append(phylotu_exp.cluster_mode)
+            data_dict["Resolution"].append(phylotu_exp.cluster_resolution)
+            data_dict["Taxon"].append(taxon)
+            _h, c, v = phylotu_exp.find_clustering_accuracy(taxon=taxon, taxon_cluster_ids=clusters)
+            data_dict["Accuracy"].append(v)
+            data_dict["Heterogeneity"].append(
+                sum([phylotu_exp.cluster_tax_distinctnesses[potu] for potu in clusters]) / len(clusters))
+            data_dict["Completeness"].append(c)
         p_bar.update()
     p_bar.close()
 
@@ -364,8 +433,7 @@ def prepare_clustering_accuracy_dataframe(cluster_experiments: list) -> pd.DataF
             for taxon_name, parent_name in re_map[cluster_res].items():
                 print("Set missing taxonomic {} of {} to '{}'.".format(cluster_res, taxon_name, parent_name))
 
-    return pd.DataFrame(dict(RefPkg=refpkgs, Length=lengths, Clustering=clusters,
-                             Resolution=resos, Taxon=taxa, Accuracy=accurs))
+    return pd.DataFrame(data_dict)
 
 
 def prepare_taxonomic_summary_dataframe(cluster_experiments: list) -> pd.DataFrame:
@@ -488,18 +556,13 @@ def prepare_taxonomic_distinctness_dataframe(cluster_experiments: list) -> pd.Da
                  "WTD": []}
     p_bar = tqdm(total=len(cluster_experiments), ncols=100, desc="Preparing taxonomic distinctness dataframe")
     for phylotu_exp in cluster_experiments:  # type: ClusterExperiment
-        phylotu_exp.load_cluster_members()
-        phylotu_exp.ref_pkg.taxa_trie.validate_rank_prefixes()
-        for potu, members in phylotu_exp.cluster_members.items():  # type: (str, set)
-            taxa = {m: phylotu_exp.query_taxon_map[m] for m in members}
+        for potu in phylotu_exp.cluster_members.keys():  # type: str
             data_dict["RefPkg"].append(phylotu_exp.pkg_name)
             data_dict["Resolution"].append(phylotu_exp.cluster_resolution)
             data_dict["Clustering"].append(phylotu_exp.cluster_mode)
             data_dict["Length"].append(phylotu_exp.seq_length)
             data_dict["Cluster"].append(potu)
-            data_dict["WTD"].append(ts.lca_calculations.taxonomic_distinctness(taxa,
-                                                                               rank=phylotu_exp.cluster_resolution,
-                                                                               rank_depths=phylotu_exp.ref_pkg.taxa_trie.accepted_ranks_depths))
+            data_dict["WTD"].append(phylotu_exp.cluster_tax_distinctnesses[potu])
         p_bar.update()
     p_bar.close()
     return pd.DataFrame(data_dict)
@@ -553,6 +616,7 @@ def sequence_cohesion_plots(frag_df: pd.DataFrame, output_dir: str) -> None:
                        color="Clustering", line_group="Clustering",
                        color_discrete_sequence=palette,
                        labels=_LABEL_MAT,
+                       category_orders=_CATEGORIES,
                        title="Split-sequence cluster completeness as a function of query sequence length")
     line_plt.update_traces(line=dict(width=4))
     # line_plt.show()
@@ -571,6 +635,7 @@ def sequence_cohesion_plots(frag_df: pd.DataFrame, output_dir: str) -> None:
                            color_discrete_sequence=palette,
                            box=True, range_y=[0, 1.01],
                            labels=_LABEL_MAT,
+                           category_orders=_CATEGORIES,
                            title="Comparing cluster completeness between reference-guided and de novo methods")
     violin_plt.update_layout(showlegend=False)
     # violin_plt.show()
@@ -606,7 +671,7 @@ def acc_summary_stats(accuracy_df: pd.DataFrame, kwargs: dict) -> pd.DataFrame:
     summary_dat = {"Mode": [],
                    "Resolution": [],
                    "AUC": [],
-                   "Accuracy": []}
+                   "Accuracy": [], "Completeness": [], "Heterogeneity": []}
     rows = 0
     n_sig = 3
     # Summarise the accuracies across the different clustering resolutions and modes
@@ -621,6 +686,9 @@ def acc_summary_stats(accuracy_df: pd.DataFrame, kwargs: dict) -> pd.DataFrame:
             summary_dat["Resolution"].append(res)
             summary_dat["AUC"].append(round(metrics.auc(x=res_df["Length"], y=res_df["Accuracy"]), n_sig))
             summary_dat["Accuracy"].append(round(sum(res_df["Accuracy"]) / len(res_df["Accuracy"]), n_sig))
+            summary_dat["Completeness"].append(round(sum(res_df["Completeness"]) / len(res_df["Completeness"]), n_sig))
+            summary_dat["Heterogeneity"].append(
+                round(sum(res_df["Heterogeneity"]) / len(res_df["Heterogeneity"]), n_sig))
             rows += 1
     for keyword, val in kwargs.items():
         summary_dat[keyword] = [val] * rows
@@ -814,9 +882,10 @@ def taxonomic_accuracy_plots(clustering_df: pd.DataFrame, output_dir: str) -> No
     line_path = os.path.join(output_dir, "accuracy_lines")
     bar_path = os.path.join(output_dir, "length_bars")
 
-    bar_plt = len_bars(clustering_df, x_lims=x_range)
-
     line_plt = acc_line(clustering_df, palette, x_lims=x_range)
+    clustering_df = clustering_df[clustering_df["Clustering"] != "local"]
+
+    bar_plt = len_bars(clustering_df, x_lims=x_range)
 
     box_plt = acc_box(clustering_df, palette)
 
@@ -940,32 +1009,47 @@ def evaluate_clusters(project_path: str, n_examples=0, reso_ranks=None, **kwargs
     map_queries_to_taxa(cluster_experiments, acc_taxon_map)
     filter_incomplete_lineages(cluster_experiments)
     filter_by_seq_lengths(cluster_experiments, min_perc=20)
+    print("Loading cluster members")
+    load_cluster_members(cluster_experiments)
 
-    evo_dist_df = prepare_evodist_accuracy_dataframe(cluster_experiments)
-    evo_summary_stats(evo_dist_df, tab_dir)
-    evolutionary_summary_plots(evo_dist_df, fig_dir)
-
-    taxonomic_distinctness_plots(prepare_taxonomic_distinctness_dataframe(cluster_experiments), fig_dir)
-
+    ##
+    # Begin data analysis
+    ##
     # Percentage of sequences that were clustered together correctly at each length and rank
     acc_df = prepare_clustering_accuracy_dataframe(cluster_experiments)
-    summary_df = acc_summary_stats(acc_df, kwargs=kwargs)
-
-    # Cohesiveness of clusters for each sliced sequence at each length
     comp_df = prepare_clustering_cohesion_dataframe(cluster_experiments)
-    completeness_summary_stats(comp_df)
+    # NOTE: Remove local alignment examples from the cluster_experiments.
+    #       All data-frames beyond this point will not include data from local-alignment experiments.
+    filter_experiments(cluster_experiments, {"cluster_mode": ["local"]})
+    wtd_df = prepare_taxonomic_distinctness_dataframe(cluster_experiments)
+    evo_dist_df = prepare_evodist_accuracy_dataframe(cluster_experiments)
 
+    ##
+    # Summarise table and write tables
+    ##
+    summary_df = acc_summary_stats(acc_df, kwargs=kwargs)
     summary_df.to_csv(os.path.join(tab_dir,
                                    "acc_summary_" + time.strftime("%d-%m-%y_%H%M%S", time.localtime()) + ".csv"),
                       index=False,
                       mode='w')
-    taxonomic_accuracy_plots(acc_df, fig_dir)
+    completeness_summary_stats(comp_df)
+    evo_summary_stats(evo_dist_df, tab_dir)
 
-    taxonomic_relationships_plot(prepare_relationships_dataframe(cluster_experiments), fig_dir)
-
-    taxonomic_summary_plots(prepare_taxonomic_summary_dataframe(cluster_experiments), fig_dir)
-
-    sequence_cohesion_plots(comp_df, fig_dir)
+    ##
+    # Create the plots
+    ##
+    taxonomic_distinctness_plots(wtd_df,
+                                 fig_dir)
+    evolutionary_summary_plots(evo_dist_df,
+                               fig_dir)
+    taxonomic_accuracy_plots(acc_df,
+                             fig_dir)
+    taxonomic_relationships_plot(prepare_relationships_dataframe(cluster_experiments),
+                                 fig_dir)
+    taxonomic_summary_plots(prepare_taxonomic_summary_dataframe(cluster_experiments),
+                            fig_dir)
+    sequence_cohesion_plots(comp_df,
+                            fig_dir)
 
     return
 
@@ -975,5 +1059,5 @@ if __name__ == "__main__":
     if len(sys.argv) == 2:
         test = sys.argv[1]
     else:
-        test = 0
+        test = 12
     evaluate_clusters(root_dir, test, confidence=0.99, dist="interval")

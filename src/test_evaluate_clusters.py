@@ -30,9 +30,9 @@ class Tester(unittest.TestCase):
         return
 
     def test_find_clustering_accuracy(self):
-        accuracy = self.mock_ce.find_clustering_accuracy(['241', '241', '240', '238', '241', '222'])
+        h, c, accuracy = self.mock_ce.find_clustering_accuracy(['241', '241', '240', '238', '241', '222'])
         self.assertEqual(0.0, accuracy)
-        accuracy = self.mock_ce.find_clustering_accuracy([2, 2, 2, 2, 2, 2, 2])
+        h, c, accuracy = self.mock_ce.find_clustering_accuracy([2, 2, 2, 2, 2, 2, 2])
         self.assertEqual(1.0, accuracy)
         return
 

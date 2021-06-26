@@ -23,7 +23,7 @@ _LABEL_MAT = {"Tax.dist": "Taxonomic distance",
 _RANKS = ['root', 'domain', 'phylum', 'class', 'order', 'family', 'genus', 'species']
 _REFPKGS = ["RecA", "RpoB", "PF01655", "NifH", "SoxY", "McrA"]
 _METHODS = ["GraftM", "TreeSAPP-LCA", "TreeSAPP-aELW", "TreeSAPP-LM", "TreeSAPP", "TreeSAPP v0.6.8", "DIAMOND"]
-_CATEGORIES = {"Clustering": ["de_novo-aln", "de_novo-psc", "ref_guided"],
+_CATEGORIES = {"Clustering": ["local", "de_novo-aln", "de_novo-psc", "ref_guided"],
                "RefPkg": _REFPKGS,
                "Rank": _RANKS,
                "Resolution": _RANKS,

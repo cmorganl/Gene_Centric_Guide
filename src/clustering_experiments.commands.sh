@@ -35,7 +35,7 @@ if [ -z $n_threads ]; then
   n_threads=8
 fi
 if [ -z $overwrite ]; then
-  overwrite="y"
+  overwrite="n"
 fi
 
 log_file=TreeSAPP_clustering_experiments_log.txt
@@ -114,6 +114,7 @@ do
 	    potu_rg_out=$prefix/$phylotu_out/$( basename $f | sed 's/_build.pkl//g' )\_phylotus_rg_$rank
 	    potu_dn_psc_out=$prefix/$phylotu_out/$( basename $f | sed 's/_build.pkl//g' )\_phylotus_dn_psc_$rank
 	    potu_dn_aln_out=$prefix/$phylotu_out/$( basename $f | sed 's/_build.pkl//g' )\_phylotus_dn_aln_$rank
+	    potu_local_out=$prefix/$phylotu_out/$( basename $f | sed 's/_build.pkl//g' )\_phylotus_local_$rank
 
 	    # Reference-guided based on placement edges
 	    if [ -d $potu_rg_out ] && [ $overwrite == 'n' ]; then
@@ -154,6 +155,20 @@ do
           -o $potu_dn_aln_out \
           --num_procs $n_threads \
           --mode de_novo --pre_cluster align \
+          --overwrite --delete
+      fi
+
+      # Clusters by pairwise local-alignment
+      if [ -d $potu_local_out ] && [ $overwrite == 'n' ]; then
+	      echo "Skipping $potu_local_out"
+	    else
+        treesapp phylotu \
+          --refpkg_path $f \
+          --assign_output $prefix/$ts_assign_out \
+          --tax_rank $rank \
+          -o $potu_local_out \
+          --num_procs $n_threads \
+          --mode local \
           --overwrite --delete
       fi
     done
