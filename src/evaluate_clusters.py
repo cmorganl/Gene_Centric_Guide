@@ -19,7 +19,7 @@ from scipy.signal import savgol_filter
 from scipy.stats import f_oneway, normaltest, ttest_ind
 import statsmodels.api as sm
 
-from category_maps import _LABEL_MAT, _REFPKGS, _CATEGORIES, _REFPKG_PALETTE_MAP, _RANK_PALETTE_MAP
+from category_maps import _LABEL_MAT, _REFPKGS, _CATEGORIES, _REFPKG_PALETTE_MAP, _RANK_PALETTE_MAP, _CLUSTERING_PALETTE_MAP
 
 pio.templates.default = "plotly_white"
 _REFPKG_DIR = "clustering_refpkgs"
@@ -606,7 +606,6 @@ def prepare_evodist_accuracy_dataframe(cluster_experiments: list) -> pd.DataFram
 
 
 def sequence_cohesion_plots(frag_df: pd.DataFrame, output_dir: str) -> None:
-    palette = px.colors.qualitative.T10
     line_path = os.path.join(output_dir, "completeness_line")
     bar_path = os.path.join(output_dir, "completeness_bar")
     violin_path = os.path.join(output_dir, "completeness_violin")
@@ -614,7 +613,7 @@ def sequence_cohesion_plots(frag_df: pd.DataFrame, output_dir: str) -> None:
     line_plt = px.line(frag_df.groupby(["Clustering", "Length"]).mean().reset_index(),
                        x="Length", y="Completeness",
                        color="Clustering", line_group="Clustering",
-                       color_discrete_sequence=palette,
+                       color_discrete_map=_CLUSTERING_PALETTE_MAP,
                        labels=_LABEL_MAT,
                        category_orders=_CATEGORIES,
                        title="Split-sequence cluster completeness as a function of query sequence length")
@@ -624,7 +623,7 @@ def sequence_cohesion_plots(frag_df: pd.DataFrame, output_dir: str) -> None:
     bar_plt = px.bar(frag_df.groupby(["Clustering", "RefPkg"]).mean().reset_index(),
                      x="RefPkg", y="Completeness",
                      barmode="group", color="Clustering",
-                     color_discrete_sequence=palette,
+                     color_discrete_map=_CLUSTERING_PALETTE_MAP,
                      category_orders=_CATEGORIES,
                      labels=_LABEL_MAT,
                      title="Mean cluster completeness across the different reference packages")
@@ -632,7 +631,7 @@ def sequence_cohesion_plots(frag_df: pd.DataFrame, output_dir: str) -> None:
 
     violin_plt = px.violin(frag_df.groupby(["RefPkg", "Clustering", "Resolution", "Length"]).mean().reset_index(),
                            x="Clustering", y="Completeness", color="Clustering",
-                           color_discrete_sequence=palette,
+                           color_discrete_map=_CLUSTERING_PALETTE_MAP,
                            box=True, range_y=[0, 1.01],
                            labels=_LABEL_MAT,
                            category_orders=_CATEGORIES,
@@ -742,7 +741,7 @@ def completeness_summary_stats(comp_df: pd.DataFrame) -> None:
     return
 
 
-def acc_line(clustering_df: pd.DataFrame, palette, x_lims=None) -> go.Figure:
+def acc_line(clustering_df: pd.DataFrame, x_lims=None) -> go.Figure:
     mean_clust_df = clustering_df.groupby(["Resolution", "Length", "Clustering"]).mean(numeric_only=True).reset_index()
     smooth_clust_df = smooth_sav_golay(mean_clust_df,
                                        group_vars=["Resolution", "Clustering"],
@@ -750,7 +749,7 @@ def acc_line(clustering_df: pd.DataFrame, palette, x_lims=None) -> go.Figure:
                                        sort_var="Length", w=25, p=3)
     acc_line_plt = px.line(smooth_clust_df,
                            x="Length", y="Spline", color="Clustering",
-                           color_discrete_sequence=palette, line_group="Clustering",
+                           color_discrete_map=_CLUSTERING_PALETTE_MAP, line_group="Clustering",
                            facet_col_spacing=0.05, range_x=x_lims,
                            line_shape="spline",
                            category_orders=_CATEGORIES,
@@ -811,7 +810,6 @@ def refpkg_traces_for_plot(df: pd.DataFrame) -> list:
 
 
 def taxonomic_distinctness_plots(clustering_df: pd.DataFrame, output_dir: str) -> None:
-    palette = px.colors.qualitative.T10
     rp_box_path = os.path.join(output_dir, "wtd_refpkg_box")
     cm_box_path = os.path.join(output_dir, "wtd_method_box")
     line_path = os.path.join(output_dir, "wtd_line")
@@ -828,7 +826,7 @@ def taxonomic_distinctness_plots(clustering_df: pd.DataFrame, output_dir: str) -
     cm_box_plt = px.box(
         clustering_df.groupby(["RefPkg", "Clustering", "Resolution", "Length"]).mean(numeric_only=True).reset_index(),
         x="Resolution", y="WTD", color="Clustering",
-        color_discrete_sequence=palette,
+        color_discrete_map=_CLUSTERING_PALETTE_MAP,
         category_orders=_CATEGORIES,
         labels=_LABEL_MAT,
         title="Taxonomic distinctness is greater in reference-guided clusters than de novo")
@@ -839,7 +837,7 @@ def taxonomic_distinctness_plots(clustering_df: pd.DataFrame, output_dir: str) -
     line_plt = px.line(
         species_wtd_df.groupby(["Clustering", "RefPkg", "Length"]).mean(numeric_only=True).reset_index(),
         x="Length", y="WTD", color="Clustering",
-        color_discrete_sequence=palette,
+        color_discrete_map=_CLUSTERING_PALETTE_MAP,
         facet_col_spacing=0.05,
         line_shape="spline",
         category_orders=_CATEGORIES,
@@ -857,11 +855,11 @@ def taxonomic_distinctness_plots(clustering_df: pd.DataFrame, output_dir: str) -
     return
 
 
-def acc_box(clustering_df: pd.DataFrame, palette) -> go.Figure:
+def acc_box(clustering_df: pd.DataFrame) -> go.Figure:
     refpkg_acc_df = clustering_df.groupby(["RefPkg", "Clustering", "Length", "Resolution"]).mean().reset_index()
     box_plt = px.box(refpkg_acc_df,
                      x="Clustering", y="Accuracy", color="Clustering",
-                     color_discrete_sequence=palette,
+                     color_discrete_map=_CLUSTERING_PALETTE_MAP,
                      category_orders=_CATEGORIES,
                      labels=_LABEL_MAT,
                      title="Comparing cluster accuracy between reference-guided and de novo methods")
@@ -876,18 +874,17 @@ def acc_box(clustering_df: pd.DataFrame, palette) -> go.Figure:
 
 
 def taxonomic_accuracy_plots(clustering_df: pd.DataFrame, output_dir: str) -> None:
-    palette = px.colors.qualitative.T10
     x_range = [20, 101]
     box_path = os.path.join(output_dir, "accuracy_boxes")
     line_path = os.path.join(output_dir, "accuracy_lines")
     bar_path = os.path.join(output_dir, "length_bars")
 
-    line_plt = acc_line(clustering_df, palette, x_lims=x_range)
+    line_plt = acc_line(clustering_df, x_lims=x_range)
     clustering_df = clustering_df[clustering_df["Clustering"] != "local"]
 
     bar_plt = len_bars(clustering_df, x_lims=x_range)
 
-    box_plt = acc_box(clustering_df, palette)
+    box_plt = acc_box(clustering_df)
 
     write_images_from_dict({line_path: line_plt, box_path: box_plt, bar_path: bar_plt})
     return
@@ -1059,5 +1056,5 @@ if __name__ == "__main__":
     if len(sys.argv) == 2:
         test = sys.argv[1]
     else:
-        test = 12
+        test = 0
     evaluate_clusters(root_dir, test, confidence=0.99, dist="interval")

@@ -23,7 +23,8 @@ _LABEL_MAT = {"Tax.dist": "Taxonomic distance",
 _RANKS = ['root', 'domain', 'phylum', 'class', 'order', 'family', 'genus', 'species']
 _REFPKGS = ["RecA", "RpoB", "PF01655", "NifH", "SoxY", "McrA"]
 _METHODS = ["GraftM", "TreeSAPP-LCA", "TreeSAPP-aELW", "TreeSAPP-LM", "TreeSAPP", "TreeSAPP v0.6.8", "DIAMOND"]
-_CATEGORIES = {"Clustering": ["local", "de_novo-aln", "de_novo-psc", "ref_guided"],
+_CLUSTER = ["local", "de_novo-aln", "de_novo-psc", "ref_guided"]
+_CATEGORIES = {"Clustering": _CLUSTER,
                "RefPkg": _REFPKGS,
                "Rank": _RANKS,
                "Resolution": _RANKS,
@@ -35,7 +36,9 @@ _RANK_PAL = palettes.linear_palette(px.colors.diverging.PuOr, len(_RANKS))
 _REFPKG_PAL = px.colors.qualitative.Safe
 _METHODS_PAL = px.colors.qualitative.Bold
 _ASM_PAL = px.colors.qualitative.Antique
+_CLUSTERING_PAL = px.colors.qualitative.T10
 
 _RANK_PALETTE_MAP = {_RANKS[i]: _RANK_PAL[i] for i in range(0, len(_RANKS))}
 _REFPKG_PALETTE_MAP = {_REFPKGS[i]: _REFPKG_PAL[i] for i in range(0, len(_REFPKGS))}
 _METHODS_PALETTE_MAP = {_METHODS[i]: _METHODS_PAL[i] for i in range(0, len(_METHODS))}
+_CLUSTERING_PALETTE_MAP = {_CLUSTER[i]: _CLUSTERING_PAL[i] for i in range(0, len(_CLUSTER))}
