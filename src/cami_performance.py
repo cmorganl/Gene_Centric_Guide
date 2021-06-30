@@ -19,9 +19,12 @@ from treesapp import entrez_utils as ts_entrez
 from treesapp import phylo_seq as ts_phyloseq
 from treesapp import refpkg as ts_refpkg
 from treesapp import lca_calculations as ts_lca
-from evaluate_clusters import ClusterExperiment
 
-from category_maps import _LABEL_MAT, _ASM_PAL
+from evaluate_clusters import ClusterExperiment, write_images_from_dict
+from category_maps import _LABEL_MAT, _CAMI_PALETTE_MAP
+_SAMPLE_MAP = {"gold_standard_high_single": "Contigs",
+               "RH_S001_merged": "Merged reads",
+               "RH_S001_forward": "Forward reads"}
 
 
 def generate_entrez_queries(taxids) -> list:
@@ -123,6 +126,7 @@ def calculate_taxonomic_distances(sample_assigned_pqueries, tax_lineage_map, ref
     ref_pkgs_ar = []
     dists_ar = []
     query_size_ar = []
+    q_name = []
 
     for sample, refpkg_pqueries in sample_assigned_pqueries.items():
         for ref_pkg_name, pqueries in refpkg_pqueries.items():
@@ -147,12 +151,38 @@ def calculate_taxonomic_distances(sample_assigned_pqueries, tax_lineage_map, ref
                 if status > 0:
                     print("Lineages didn't converge between:\n"
                           "'{}' and '{}' (taxid: {})\n".format(pq.recommended_lineage, optimal_taxon, pq.ncbi_tax))
-                samples_ar.append(sample)
+                samples_ar.append(_SAMPLE_MAP[sample])
                 ref_pkgs_ar.append(ref_pkg_name)
                 dists_ar.append(tax_dist)
                 query_size_ar.append(n_queries)
+                q_name.append(pq.seq_name)
 
-    return pd.DataFrame(dict(RefPkg=ref_pkgs_ar, Sample=samples_ar, TaxDist=dists_ar, Size=query_size_ar))
+    return pd.DataFrame(dict(RefPkg=ref_pkgs_ar, Sample=samples_ar, Query=q_name, TaxDist=dists_ar, Size=query_size_ar))
+
+
+def compare_unassembled_data(tax_dist_dat) -> pd.DataFrame:
+    """
+    Compares the taxonomic distances between query sequences shared between the merged and forward reads.
+    The mean of mean taxonomic distance for each reference package is used to ensure they're equally weighted.
+
+    The 'Query' column is dropped from the pandas DataFrame once this is finished.
+    """
+    mrg_names = set(tax_dist_dat[tax_dist_dat["Sample"] == "Merged reads"]["Query"])
+    fwd_names = set(tax_dist_dat[tax_dist_dat["Sample"] == "Forward reads"]["Query"])
+    shared_names = mrg_names.intersection(fwd_names)
+    commons = [True if x in shared_names else False for x in tax_dist_dat["Query"]]
+    common_df = tax_dist_dat[commons]
+
+    mean_common = common_df.pivot_table(index="RefPkg", columns="Sample", values="TaxDist").mean()
+    print("{} unique sequences were classified in both the merged and forward datasets.\n"
+          "Mean taxonomic distance for merged: {}\n"
+          "Mean taxonomic distance for forward: {}\n".format(len(shared_names),
+                                                             round(mean_common["Merged reads"], 3),
+                                                             round(mean_common["Forward reads"], 3)))
+
+    # Drop the Query column as it's no longer needed
+    tax_dist_dat = tax_dist_dat.drop("Query", axis=1)
+    return tax_dist_dat
 
 
 def generate_plotly_bubble_size_legend(data: list) -> go.Figure:
@@ -175,18 +205,17 @@ def plot_taxonomic_distance_bubbles(tax_dist_dat: pd.DataFrame, output_dir: str)
     bubble_plt = px.scatter(plt_dat,
                             x="RefPkg", y="TaxDist", color="Sample", size="Size",
                             size_max=20,
-                            color_discrete_sequence=_ASM_PAL,
+                            color_discrete_map=_CAMI_PALETTE_MAP,
                             labels=_LABEL_MAT,
                             title="")
-    bubble_plt.update_traces(marker=dict(line=dict(width=2,
+    bubble_plt.update_traces(marker=dict(line=dict(width=1,
                                                    color='DarkSlateGrey')),
                              selector=dict(mode='markers'))
     bubble_plt.update_layout({'plot_bgcolor': 'rgba(0, 0, 0, 0)'})
     bubble_plt.update_xaxes(showgrid=True, gridwidth=1, tickangle=45)
     bubble_plt.update_yaxes(showgrid=True, gridwidth=1, dtick=1)
 
-    bubble_plt.write_image(os.path.join(output_dir, "tax_dist_bubbles.png"), engine="kaleido", scale=4.0)
-    # bubble_plt.write_image(os.path.join(output_dir, "tax_dist_bubbles.svg"), engine="kaleido", scale=4.0)
+    write_images_from_dict({os.path.join(output_dir, "tax_dist_bubbles"): bubble_plt})
     return
 
 
@@ -201,8 +230,8 @@ def summary_stats(tax_dist_dat: pd.DataFrame) -> None:
     else:
         print("The null hypothesis cannot be rejected; these data are not normally distributed.")
 
-    x = tax_dist_dat[tax_dist_dat["Sample"] == "RH_S001_merged"]["TaxDist"]
-    y = tax_dist_dat[tax_dist_dat["Sample"] == "gold_standard_high_single"]["TaxDist"]
+    x = tax_dist_dat[tax_dist_dat["Sample"] == _SAMPLE_MAP["RH_S001_merged"]]["TaxDist"]
+    y = tax_dist_dat[tax_dist_dat["Sample"] == _SAMPLE_MAP["gold_standard_high_single"]]["TaxDist"]
     s, p = stats.ttest_ind(x, y)
     if p < alpha:
         print("These distributions are significantly different (P-value = {:.6g})".format(p))
@@ -226,6 +255,7 @@ def merge_otu_matrices(refpkg_otu_matrices: dict, reset_otu_count=True) -> pd.Da
         else:
             merged_df = merged_df.append(result)
 
+    merged_df = merged_df.rename(columns=_SAMPLE_MAP)
     merged_df = merged_df.rename(columns={"#OTU_ID": "OTU"})
     if reset_otu_count:
         merged_df["RefPkg_OTU"] = [x for x in range(0, len(merged_df))]
@@ -264,7 +294,7 @@ def get_potu_data(phylotu_outputs: list) -> (pd.DataFrame, pd.DataFrame):
             if sid == "#OTU_ID":
                 continue
             potu_count_ar.append(sum([1 for x in otu_mat[sid] if x > 1]))
-            samples_ar.append(sid)
+            samples_ar.append(_SAMPLE_MAP[sid])
             refpkg_ar.append(phylotu_exp.pkg_name)
 
     merged_otu_df = merge_otu_matrices(refpkg_otu_matrices)
@@ -281,7 +311,7 @@ def plot_phylotu_boxes(potu_df: pd.DataFrame, output_dir: str) -> None:
     violin_plt.update_traces(marker=dict(color='DarkSlateGrey'))
     violin_plt.update_yaxes(showgrid=True, gridwidth=1, dtick=100)
 
-    violin_plt.write_image(os.path.join(output_dir, "pOTU_count_violin.png"), engine="kaleido", scale=4.0)
+    write_images_from_dict({os.path.join(output_dir, "pOTU_count_violin"): violin_plt})
     return
 
 
@@ -303,8 +333,8 @@ def plot_phylotu_upset(potu_df: pd.DataFrame, output_dir: str) -> None:
     # Subset tmp_dat
 
     upset_dat = upsetplot.from_contents(otu_memberships)
-    upsetplot.plot(upset_dat, sort_by="cardinality", show_percentages=True)
-    # plt.savefig(fname=os.path.join(output_dir, "UpSet_pOTUs.svg"))
+    upsetplot.plot(upset_dat, sort_by="cardinality", show_percentages=True, totals_plot_elements=3, element_size=60)
+    plt.savefig(fname=os.path.join(output_dir, "UpSet_pOTUs.pdf"))
     plt.savefig(fname=os.path.join(output_dir, "UpSet_pOTUs.png"))
 
     return
@@ -318,7 +348,6 @@ def plot_rainclouds(potu_df: pd.DataFrame, output_dir: str) -> None:
     f, ax = plt.subplots(figsize=(7, 5))
     ax = pt.RainCloud(x=dx, y=dy, data=potu_df, palette=pal,
                       bw=sigma, width_viol=.6, move=.2, ax=ax, orient="h")
-    plt.savefig(fname=os.path.join(output_dir, "raining_pOTUs.png"))
     plt.savefig(fname=os.path.join(output_dir, "raining_pOTUs.svg"))
     # TODO: add lines between reference package points
     return
@@ -327,6 +356,7 @@ def plot_rainclouds(potu_df: pd.DataFrame, output_dir: str) -> None:
 def main(root_dir):
     data_dir = os.path.join(root_dir, "CAMI_experiments") + os.sep
     fig_dir = os.path.join(root_dir, "manuscript", "figures") + os.sep
+    tbl_dir = os.path.join(root_dir, "manuscript", "tables") + os.sep
     assign_outputs = {"gold_standard_high_single": data_dir + "gsa_mapping_pool.binning",
                       "RH_S001_merged": data_dir + "gs_read_mapping_1.binning",
                       "RH_S001_forward": data_dir + "gs_read_mapping_1.binning"}
@@ -352,11 +382,19 @@ def main(root_dir):
     # Calculate the taxonomic distances by RefPkg and output, return a pandas dataframe
     tax_dist_dat = calculate_taxonomic_distances(sample_assigned_pqueries, tax_lineage_map, refpkg_dict)
 
+    # Compare unassembled datasets
+    tax_dist_dat = compare_unassembled_data(tax_dist_dat)
+
     # Plot the taxonomic distances
     plot_taxonomic_distance_bubbles(tax_dist_dat, fig_dir)
 
     # Report the mean and variance of each sample and test for significance
     summary_stats(tax_dist_dat)
+    summary_df = tax_dist_dat.groupby(["RefPkg", "Sample"]).agg({"TaxDist": ["count", "mean", "median", "std"]}).reset_index()
+    summary_df.to_csv(os.path.join(tbl_dir,
+                                   "CAMI_dist_summary.csv"),
+                      index=False,
+                      mode='w')
 
     # Plot the pOTUs
     plot_phylotu_boxes(potu_df, fig_dir)
