@@ -524,10 +524,16 @@ def prepare_relationships_dataframe(cluster_experiments: list) -> pd.DataFrame:
     return pd.DataFrame(data_dict)
 
 
-def write_images_from_dict(fig_path_map: dict, fig_scale=4.0) -> None:
+def write_images_from_dict(fig_path_map: dict, fig_scale=4.0, formats=None) -> None:
+    if formats is None:
+        formats = ["png", "pdf"]
     for prefix, fig in fig_path_map.items():
-        fig.write_image(prefix + ".png", engine="kaleido", scale=fig_scale)
-        fig.update_layout(title="").write_image(prefix + ".pdf", engine="kaleido", scale=fig_scale, validate=True)
+        if "png" in formats:
+            fig.write_image(prefix + ".png", engine="kaleido", scale=fig_scale)
+        if "pdf" in formats:
+            fig.update_layout(title="").write_image(prefix + ".pdf", engine="kaleido", scale=fig_scale, validate=True)
+        if "svg" in formats:
+            fig.update_layout(title="").write_image(prefix + ".svg", engine="kaleido", scale=fig_scale, validate=True)
     return
 
 

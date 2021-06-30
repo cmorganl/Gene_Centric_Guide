@@ -186,11 +186,22 @@ def compare_unassembled_data(tax_dist_dat) -> pd.DataFrame:
 
 
 def generate_plotly_bubble_size_legend(data: list) -> go.Figure:
-    # TODO: Finish implementing this unless there's an easy way to create a bubble size legend in Plotly
+    legend_sizes = [int(round(x, -2)) for x in [min(data), max(data) / 2, max(data)]]
     fig_legend = go.Figure(data=[go.Scatter(
-        x=[1, 1, 1], y=[min(data), max(data) / 2, max(data)],
-        mode='markers', fillcolor="DarkSlateGrey")])
-    fig_legend.update_layout(yaxis_visible=False, yaxis_showticklabels=False)
+        x=[1, 1, 1],
+        y=[x for x in range(0, len(legend_sizes), 1)],
+        text=[str(n) for n in legend_sizes],
+        textposition="middle right",
+        mode="markers+text",
+        marker=dict(
+            size=legend_sizes,
+            sizemode="area",
+            sizeref=2.*max(legend_sizes)/(40.**2),
+            sizemin=4),
+        fillcolor="DarkSlateGrey")])
+    fig_legend.update_layout(yaxis_visible=False,
+                             yaxis_showticklabels=False)
+
     return fig_legend
 
 
@@ -199,23 +210,27 @@ def plot_taxonomic_distance_bubbles(tax_dist_dat: pd.DataFrame, output_dir: str)
     plt_dat = tax_dist_dat[tax_dist_dat["Size"] >= 100].groupby(["RefPkg", "Sample"]).mean().reset_index()
 
     # Define the bubble plot size legend
-    # bubble_legend = generate_plotly_bubble_size_legend(tax_dist_dat["Size"])
-    # bubble_legend.show()
+    bubble_legend = generate_plotly_bubble_size_legend(plt_dat["Size"])
 
-    bubble_plt = px.scatter(plt_dat,
+    mean_td = plt_dat.groupby("RefPkg").mean(numeric_only=True)["TaxDist"].reset_index()
+    plt_dat = plt_dat.set_index("RefPkg").join(mean_td.set_index("RefPkg"), rsuffix="_mean").reset_index()
+    bubble_plt = px.scatter(plt_dat.sort_values("TaxDist_mean", ascending=True),
                             x="RefPkg", y="TaxDist", color="Sample", size="Size",
-                            size_max=20,
                             color_discrete_map=_CAMI_PALETTE_MAP,
                             labels=_LABEL_MAT,
-                            title="")
+                            title="CAMI high-complexity classifications at each stage of assembly")
     bubble_plt.update_traces(marker=dict(line=dict(width=1,
-                                                   color='DarkSlateGrey')),
+                                                   color='DarkSlateGrey'),
+                                         sizemode='area',
+                                         sizeref=2. * max(plt_dat["Size"]) / (40. ** 2)),
                              selector=dict(mode='markers'))
     bubble_plt.update_layout({'plot_bgcolor': 'rgba(0, 0, 0, 0)'})
     bubble_plt.update_xaxes(showgrid=True, gridwidth=1, tickangle=45)
     bubble_plt.update_yaxes(showgrid=True, gridwidth=1, dtick=1)
 
-    write_images_from_dict({os.path.join(output_dir, "tax_dist_bubbles"): bubble_plt})
+    write_images_from_dict({os.path.join(output_dir, "tax_dist_bubbles"): bubble_plt,
+                            os.path.join(output_dir, "tax_dist_bubble_legend"): bubble_legend},
+                           formats=["svg"])
     return
 
 
