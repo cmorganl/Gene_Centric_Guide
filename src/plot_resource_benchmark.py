@@ -3,14 +3,13 @@
 import os
 
 import pandas as pd
-import numpy as np
 from scipy.signal import savgol_filter
 import plotly.express as px
 import plotly.graph_objs as go
 
 from evaluate_clusters import write_images_from_dict
-from evaluate_tax_summary import fit_line
 from category_maps import _METHODS_PALETTE_MAP, _CATEGORIES, _LABEL_MAT
+from treesapp import __version__ as ts_ver
 
 
 def update_figure_aesthetics(fig: go.Figure) -> None:
@@ -47,27 +46,6 @@ def ram_plot(df: pd.DataFrame, output_dir: str) -> None:
 def time_plot(df: pd.DataFrame, output_dir: str) -> None:
     plot_prefix = os.path.join(output_dir, "compute_time")
     df["Mb"] = df["Fasta.Length"] / 1E6
-    old_df = df[df.Software == "TreeSAPP v0.6.8"]
-    new_df = df[df.Software != "TreeSAPP v0.6.8"]
-    norm_dat = {"Software": [],
-                "Molecule": [],
-                "Threads": [],
-                "Mb": [],
-                "Time (m)": []}
-    # Use linear regression to model the old TreeSAPP's runtimes
-    for mol_group in ["aa", "nuc"]:
-        group_df = old_df[old_df["Molecule"] == mol_group]
-        n_obs = 10
-        x, y, _y_pred, _res = fit_line(x_train=np.array(group_df.Mb),
-                                       y_train=group_df["Time (m)"],
-                                       num=n_obs)
-        norm_dat["Software"] += ["TreeSAPP v0.6.8"] * n_obs
-        norm_dat["Molecule"] += [mol_group] * n_obs
-        norm_dat["Threads"] += [4] * n_obs
-        norm_dat["Mb"] += list(x)
-        norm_dat["Time (m)"] += list(y)
-
-    df = pd.concat([new_df, pd.DataFrame(norm_dat)])
     fig = px.line(df,
                   x="Mb", y="Time (m)",
                   color="Software", line_group="Software",
@@ -109,10 +87,16 @@ def merge_graftm_resources(data_df: pd.DataFrame) -> pd.DataFrame:
     return data_df
 
 
-def main(time_table: str, figures_dir: str, tables_dir: str) -> None:
-    data_df = pd.read_csv(time_table, sep=",", header=0)
+def add_treesapp_version(data_df: pd.DataFrame) -> pd.DataFrame:
+    data_df["Software"] = data_df["Software"].replace(["TreeSAPP"], "TreeSAPP v" + ts_ver)
+    return data_df
+
+
+def main(time_tables: list, figures_dir: str, tables_dir: str) -> None:
+    data_df = pd.concat([pd.read_csv(x, sep=",", header=0) for x in time_tables])
     data_df["Time (s)"] = convert_hhmmss_to_float(data_df["Time (mm:ss)"])
     data_df = merge_graftm_resources(data_df)
+    data_df = add_treesapp_version(data_df)
     data_df["Time (m)"] = round(data_df["Time (s)"] / 60, 2)
 
     sum_df = data_df.groupby(["Software", "Threads", "Molecule"]).sum(numeric_only=True).reset_index()
@@ -132,6 +116,7 @@ def main(time_table: str, figures_dir: str, tables_dir: str) -> None:
 
 
 if __name__ == '__main__':
-    main(time_table="../manuscript/tables/runtime_log.csv",
+    main(time_tables=["../manuscript/tables/runtime_log.csv",
+                      "../manuscript/tables/archive_runtime_log.csv"],
          figures_dir="../manuscript/figures/",
          tables_dir="../manuscript/tables/")
