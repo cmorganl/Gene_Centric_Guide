@@ -89,6 +89,8 @@ def merge_graftm_resources(data_df: pd.DataFrame) -> pd.DataFrame:
 
 def add_treesapp_version(data_df: pd.DataFrame) -> pd.DataFrame:
     data_df["Software"] = data_df["Software"].replace(["TreeSAPP"], "TreeSAPP v" + ts_ver)
+
+    _METHODS_PALETTE_MAP["TreeSAPP v" + ts_ver] = _METHODS_PALETTE_MAP["TreeSAPP"]
     return data_df
 
 
