@@ -9,7 +9,7 @@ However, the takeaways are broadly applicable to other tools working with phylog
 
 ## Sections
 
-- [Phylogenetic clustering](https://github.com/cmorganl/Gene_Centric_Guide/tree/main/clustering_experiments)
+- [Phylogenetic clustering](https://github.com/cmorganl/treesapp_phylotu)
 - [Assembly-level for taxonomic assignment with phylogenetic placement](https://github.com/cmorganl/Gene_Centric_Guide/tree/main/CAMI_experiments)
 - [Methods for taxonomic assignment from phylogenetic placements](https://github.com/cmorganl/Gene_Centric_Guide/tree/main/tax_summary)
 
